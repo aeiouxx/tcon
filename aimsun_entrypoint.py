@@ -7,6 +7,7 @@ Aimsun will then use the provided callbacks during simulation execution.
 
 WARNING: While the simulation is paused / not executing, Aimsun holds the GIL, so threading does not work as one would expect here.
 """
+from common.logger import get_logger
 try:
     from AAPI import *
 except ImportError:
@@ -14,10 +15,13 @@ except ImportError:
     stderr.write("This module should not be launched manually "
                  "nor via 'aconsole --script'. "
                  "It's meant to be managed by Aimsun Next APIs in Scenario > Properties > Aimsun Next APIs\n")
+
 # > AAPI CALLBACKS -------------------------------------------------------------
+log = get_logger(__name__, "DEBUG", False)
 
 
 def AAPILoad() -> int:
+    log.debug("AAPILoad()")
     return 0
 
 
