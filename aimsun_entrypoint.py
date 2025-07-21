@@ -52,9 +52,6 @@ def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, bas
       • import x                 -> hot_import("x")
       • import x as y            -> hot_import("x", alias="y")
       • from x import a, b       -> hot_import("x", from_list=["a", "b"])
-    Returns:
-      • The reloaded module object (module import)  OR
-      • A dict of freshly-loaded symbols (from-import case).
     """
     base_path = pathlib.Path(base_path)
     module_file = base_path / (name.replace(".", "/") + ".py")
@@ -63,9 +60,6 @@ def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, bas
     mtime = module_file.stat().st_mtime
     last_mtime = _MOD_MTIMES.get(name)
     if last_mtime is not None and last_mtime >= mtime:
-        # entry not stale
-        # TODO: should we look up what we imported already and return
-        # so caller doesnt have to do `if result:` every time?
         return
     if from_list:
         # reimporting symbols
