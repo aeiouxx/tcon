@@ -25,7 +25,7 @@ class LogLevelFormatter(logging.Formatter):
 
 def get_logger(name: str, /,
                level: int | str = "INFO",
-               use_ansi: bool = True,
+               disable_ansi: bool = True,
                logfile: pathlib.Path | None = None):
     logger = logging.getLogger(name)
     logger.setLevel(level)
@@ -34,7 +34,7 @@ def get_logger(name: str, /,
     simple_fmt = logging.Formatter(FMT, DATEFMT)
     stream = logging.StreamHandler(sys.stdout)
     stream.setFormatter(LogLevelFormatter(FMT, DATEFMT)
-                        if use_ansi else simple_fmt)
+                        if not disable_ansi else simple_fmt)
     logger.addHandler(stream)
     if logfile:
         arbitrary_size = 5 * 1024 ** 2

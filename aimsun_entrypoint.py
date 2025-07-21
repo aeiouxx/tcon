@@ -14,8 +14,11 @@ import pathlib
 import logging
 from types import ModuleType
 
-# HACK: These module imports will get overwritten by our hot_reloading, it's just here for intellisense
-from common.logger import get_logger
+# HACK: Only for static analysis, at runtime we import only via our mechanism
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from common.logger import get_logger
+    from common.ipc import ServerProcess
 
 try:
     from AAPI import *
@@ -25,11 +28,14 @@ except ImportError:
                  "nor via 'aconsole --script'. "
                  "It's meant to be managed by Aimsun Next APIs in Scenario > Properties > Aimsun Next APIs\n")
 
-# > Module imports
-# FIXME: If we actually wanted a more robust system, the better way would be to recompile and patch the bytecode of the module
-# piecemeal (just update __code__ pointer for required parts) we could set up a filewatcher and do this automatically, this
+# > Module imports -------------------------------------------------------------
+# FIXME: If we actually wanted a more robust system, the better way would be to
+# recompile and patch the bytecode of the module
+# piecemeal (just update __code__ pointer for required parts)
+# we could set up a filewatcher and do this automatically, this
 # would affect even transitive dependecies, which are not solved with this approach
-# we could define a simple dependency DAG but let's implement the stuff we actually need first...
+# we could define a simple dependency DAG
+# but let's implement the stuff we actually need first...
 if "_MOD_MTIMES" not in globals():
     globals()["_MOD_MTIMES"] = {
     }
@@ -60,7 +66,6 @@ def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, bas
         # entry not stale
         # TODO: should we look up what we imported already and return
         # so caller doesnt have to do `if result:` every time?
-        print(f"Not reimporting, file: `{mtime}` cached `{last_mtime}`")
         return
     if from_list:
         # reimporting symbols
@@ -79,18 +84,22 @@ def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, bas
 # < Module imports -------------------------------------------------------------
 # > AAPI CALLBACKS -------------------------------------------------------------
 log = None
-ENABLE_ANSI = False
+
+_SERVER: common.ipc.ServerProcess | None = None
 
 
 def _load():
-    global log
+    global log, _SERVER
     base = pathlib.Path(__file__).parent
     hot_import("common.logger", from_list=["get_logger"], base_path=base)
-    log = get_logger(__file__, "DEBUG", ENABLE_ANSI)
+    hot_import("common.ipc", from_list=["ServerProcess"], base_path=base)
+    log = get_logger(__file__, "DEBUG")
+    _SERVER = ServerProcess()
 
 
 def AAPILoad() -> int:
     _load()
+    _SERVER.start()
     log.debug("AAPILoad()")
     return 0
 
@@ -103,6 +112,9 @@ def AAPISimulationReady() -> int:
     return 0
 
 
+# FIXME: how will we actually pickup stuff from the queue, what if we queue up a ton of stuff
+# thats inconsequential, sort by initime and process only entries that will happen next step
+# or just pickup everything from the queue? Processing will cost time (although not every time)
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
     return 0
 
@@ -116,6 +128,8 @@ def AAPIFinish() -> int:
 
 
 def AAPIUnLoad() -> int:
+    log.debug("AAPIUnLoad()")
+    _SERVER.stop()
     return 0
 
 
@@ -149,7 +163,7 @@ def AAPIPreRouteChoiceCalculation(time: float, timeSta: float) -> int:
 
 def AAPIVehicleStartParking(idveh: int, idsection: int, time: float) -> int:
     return 0
-# < AAPI CALLBACKS
+# < AAPI CALLBACKS -------------------------------------------------------------
 
 
 if __name__ == "__main__":
