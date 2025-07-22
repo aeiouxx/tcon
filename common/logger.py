@@ -5,7 +5,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Final
 
 LEVEL_COLOURS: Final[dict[int, str]] = {
-    logging.DEBUG: "\033[37m",        # white
+    logging.DEBUG: "\033[34m",        # white
     logging.INFO: "\033[32m",         # green
     logging.WARNING: "\033[33m",      # yellow
     logging.ERROR: "\033[31m",        # red
