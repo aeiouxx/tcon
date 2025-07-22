@@ -32,7 +32,8 @@ class CreateIncidentDto(BaseModel):
     section_id: int = Field(...,
                             description="Identifier of the section of the incident")
     lane: int = Field(...,
-                      description="Lane number (1-indexed) where the incident occurs")
+                      description="Lane number (1-indexed) where the incident occurs",
+                      gt=0)
     position: float = Field(
         ..., description="Position (distance from section start) of the incident")
     length: float = Field(..., description="Length of the incident")
