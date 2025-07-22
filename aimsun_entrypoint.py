@@ -14,11 +14,12 @@ import pathlib
 import logging
 from types import ModuleType
 
-# HACK: Only for static analysis, at runtime we import only via our mechanism
+# HACK: Only for static analysis, at runtime we import only via our importing mechanism
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from common.logger import get_logger
     from common.ipc import ServerProcess
+    from common.models import CommandType, Command, Incident
 
 try:
     from AAPI import *
@@ -34,8 +35,7 @@ except ImportError:
 # piecemeal (just update __code__ pointer for required parts)
 # we could set up a filewatcher and do this automatically, this
 # would affect even transitive dependecies, which are not solved with this approach
-# we could define a simple dependency DAG
-# but let's implement the stuff we actually need first...
+# (we could define a simple dependency DAG but let's implement the stuff we actually need first...)
 if "_MOD_MTIMES" not in globals():
     globals()["_MOD_MTIMES"] = {
     }
@@ -79,7 +79,7 @@ def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, bas
 # > AAPI CALLBACKS -------------------------------------------------------------
 log = None
 
-_SERVER: common.ipc.ServerProcess | None = None
+_SERVER: ServerProcess | None = None
 
 
 def _load():
@@ -87,6 +87,7 @@ def _load():
     base = pathlib.Path(__file__).parent
     hot_import("common.logger", from_list=["get_logger"], base_path=base)
     hot_import("common.ipc", from_list=["ServerProcess"], base_path=base)
+    hot_import("common.models")
     log = get_logger(__file__, "DEBUG")
     _SERVER = ServerProcess()
 
