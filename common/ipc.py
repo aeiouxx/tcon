@@ -12,10 +12,13 @@ log = get_logger(__file__)
 class ServerProcess:
     _python_executable: str | None = None
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 6969):
+    def __init__(self,
+                 host: str = "127.0.0.1",
+                 port: int = 6969):
         self.executable = self._resolve_python()
         self.host = host
         self.port = port
+        # this should be "owned" by the entrypoint / dispatcher
         self.queue: Queue = mp.Queue()
         self._proc: mp.Process | None = None
 
@@ -38,6 +41,11 @@ class ServerProcess:
             self._proc.join(timeout)
         self._proc = None
         log.info("Server process terminated")
+
+        if self.queue:
+            self.queue.close()
+            self.queue.join_thread()
+            log.info("Queue closed and joined")
 
     # FIXME: initial resolution is quite expensive if we end up
     # expanding it to work more robustly, cache on filesystem?

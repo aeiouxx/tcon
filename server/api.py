@@ -33,6 +33,14 @@ def build_app(queue: mp.Queue) -> FastAPI:
     def remove_incident(incident: RemoveIncidentDto):
         return _accept_command(CommandType.INCIDENT_REMOVE, incident.model_dump())
 
+    @app.post("/pause", status_code=StatusCode.ACCEPTED)
+    def pause():
+        return _accept_command(CommandType.SIMULATION_PAUSE, None)
+
+    @app.post("/play", status_code=StatusCode.ACCEPTED)
+    def play():
+        return _accept_command(CommandType.SIMULATION_PLAY, None)
+
     return app
 
 

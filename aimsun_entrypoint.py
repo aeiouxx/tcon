@@ -12,14 +12,18 @@ import importlib
 import sys
 import pathlib
 import logging
+import json
 from types import ModuleType
+from queue import Empty
+from pydantic import BaseModel
 
 # HACK: Only for static analysis, at runtime we import only via our importing mechanism
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from common.logger import get_logger
     from common.ipc import ServerProcess
-    from common.models import CommandType, Command, Incident
+    from common.models import CommandType, Command, CreateIncidentDto, RemoveIncidentDto
+    from common.config import Settings, get_settings
 
 try:
     from AAPI import *
@@ -76,20 +80,84 @@ def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, bas
 
 
 # < Module imports -------------------------------------------------------------
+# > Command handling -----------------------------------------------------------
+def _handle_incident_create(raw: dict) -> None:
+    log.debug("incident_create...")
+    pass
+
+
+def _handle_incident_remove(raw: dict) -> None:
+    log.debug("incident_remove...")
+    pass
+
+
+def _handle_simulation_pause(raw: dict = None) -> None:
+    """ Here we keep the GIL at the cost of locking the GUI. Wakeup via commands. """
+    log.debug("simulation_pause...")
+    stop_simulation_cmd = 3
+    noop = 0
+    ANGSetSimulationOrder(stop_simulation_cmd, noop)
+    return
+
+
+def _handle_simulation_play(raw: dict = None) -> None:
+    # FIXME: doesn't work very well...
+    log.debug("simulation_play...")
+    run_simulation_cmd = 0
+    stop_simulation_cmd = 3
+    noop = 0
+    ANGSetSimulationOrder(stop_simulation_cmd, noop)
+    ANGSetSimulationOrder(run_simulation_cmd, noop)
+    return
+
+
+def _dispatch() -> None:
+    if not _SERVER.queue:
+        log.critical("No queue!")
+    while True:
+        try:
+            raw_cmd: dict = _SERVER.queue.get_nowait()
+            cmd_type = CommandType(raw_cmd["type"])
+            handler = _DISPATCH_TABLE.get(cmd_type)
+            if handler is None:
+                log.warning("Unhandled command type: %s", cmd_type)
+                continue
+            handler(raw_cmd.get("payload") or {})
+        except Empty:
+            break
+        except ValueError:
+            log.warning("Unknown command type string: %s", raw_cmd.get("type"))
+            continue
+        except Exception as exc:
+            log.exception("Failed to process %s: %s", cmd_type, exc)
+
+
+# < Command handling -----------------------------------------------------------
 # > AAPI CALLBACKS -------------------------------------------------------------
 log = None
-
 _SERVER: ServerProcess | None = None
+_DISPATCH_TABLE:  dict[CommandType, callable[[dict], None]]
 
 
 def _load():
-    global log, _SERVER
-    base = pathlib.Path(__file__).parent
-    hot_import("common.logger", from_list=["get_logger"], base_path=base)
-    hot_import("common.ipc", from_list=["ServerProcess"], base_path=base)
-    hot_import("common.models")
-    log = get_logger(__file__, "DEBUG")
-    _SERVER = ServerProcess()
+    global log, _SERVER, _DISPATCH_TABLE, _ATEXIT_REGISTERED
+    base_path = pathlib.Path(__file__).parent
+    hot_import("common.logger", from_list=["get_logger"], base_path=base_path)
+    hot_import("common.ipc", from_list=["ServerProcess"], base_path=base_path)
+    hot_import("common.models", from_list=[
+               "CommandType", "Command", "CreateIncidentDto", "RemoveIncidentDto"], base_path=base_path)
+    logfile = base_path.resolve() / "aimsun.log"
+    log = get_logger(__file__, "DEBUG", disable_ansi=True, logfile=logfile)
+    _DISPATCH_TABLE = {
+        CommandType.INCIDENT_CREATE: _handle_incident_create,
+        CommandType.INCIDENT_REMOVE: _handle_incident_remove,
+        CommandType.SIMULATION_PLAY: _handle_simulation_play,
+        CommandType.SIMULATION_PAUSE: _handle_simulation_pause
+    }
+    if _SERVER and _SERVER._proc and _SERVER._proc.is_alive():
+        log.warning("Server is already running")
+    else:
+        _SERVER = ServerProcess()
 
 
 def AAPILoad() -> int:
@@ -104,13 +172,28 @@ def AAPIInit() -> int:
 
 
 def AAPISimulationReady() -> int:
-    return 0
+    def pause_simulation_release_GIL() -> int:
+        """
+        Pauses the simulation, but releases the GIL to aimsun.
+        Allows continuing via GUI, but not via our commands, for that we need the GIL
+        """
+        stop_simulation_cmd = 3
+        noop = 0
+        ANGSetSimulationOrder(stop_simulation_cmd, noop)
+        return 0
+    return pause_simulation_release_GIL()
 
 
 # FIXME: how will we actually pickup stuff from the queue, what if we queue up a ton of stuff
 # thats inconsequential, sort by initime and process only entries that will happen next step
 # or just pickup everything from the queue? Processing will cost time (although not every time)
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
+    global _SERVER
+    if _SERVER and _SERVER._proc and not _SERVER._proc.is_alive():
+        log.warning("Detected server crash — cleaning up")
+        _SERVER.stop()
+        _SERVER = None
+    _dispatch()
     return 0
 
 
@@ -123,8 +206,10 @@ def AAPIFinish() -> int:
 
 
 def AAPIUnLoad() -> int:
+    global _SERVER
     log.debug("AAPIUnLoad()")
     _SERVER.stop()
+    _SERVER = None
     return 0
 
 
@@ -159,7 +244,3 @@ def AAPIPreRouteChoiceCalculation(time: float, timeSta: float) -> int:
 def AAPIVehicleStartParking(idveh: int, idsection: int, time: float) -> int:
     return 0
 # < AAPI CALLBACKS -------------------------------------------------------------
-
-
-if __name__ == "__main__":
-    raise ImportError("DO NOT RUN ME MANUALLY")

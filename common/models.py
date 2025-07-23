@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 
 class CommandType(str, Enum):
     PING = "ping"
+    SIMULATION_PAUSE = "simulation_pause"
+    SIMULATION_PLAY = "simulation_play"
     INCIDENT_CREATE = "incident_create"
     INCIDENT_REMOVE = "incident_remove"
     MEASURE_CREATE = "measure_create"
@@ -13,7 +15,7 @@ class CommandType(str, Enum):
 
 class Command(BaseModel):
     type: CommandType
-    payload: dict | None | CreateIncidentDto | RemoveIncidentDto = None
+    payload: dict | None = None
 
 
 """
