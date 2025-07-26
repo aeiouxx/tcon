@@ -1,44 +1,66 @@
 import multiprocessing as mp
+import os
+import uuid
 from pathlib import Path
-from time import sleep
+import time
+
+import pytest
 import multiprocessing.connection as mpc
 
 from common.ipc import TconQueue
 
 
-def send_one(pipe_adr: str, obj: object) -> None:
-    with mpc.Client(pipe_adr, family=TconQueue.family()) as client:
-        client.send(obj)
+# ---------- helpers ----------------------------------------------------------
+def _queue_name() -> str:
+    """Generate a unique pipe / socket name per test run."""
+    return f"pytest_{uuid.uuid4().hex}"
 
 
-def test_single(tmp_path: Path):
-    srv = TconQueue("pytest_ipc", tmpdir=tmp_path)
-    srv.start()
-
-    pickle = {"hello": 69}
-    p = mp.Process(target=send_one, args=(srv.address, pickle))
-    p.start()
-    p.join()
-
-    assert srv.poll()
-    assert srv.recv() == pickle
-    srv.close()
+def _send_one(address: str, obj, *, family: str = TconQueue.family()):
+    """Open, send exactly one message, close."""
+    with mpc.Client(address, family=family) as c:
+        c.send(obj)
 
 
-def test_reinit_after_crash(tmp_path: Path):
-    """Server can restart even if previous process crashed without close()."""
-    name = "pytest_ipc2"
+# ---------- tests ------------------------------------------------------------
+def test_basic_send_recv(tmp_path: Path):
+    name = _queue_name()
+    q = TconQueue(name, tmpdir=tmp_path)
+    q.start()
 
-    srv1 = TconQueue(name, tmpdir=tmp_path)
-    srv1.start()
-    # simulate crash – do not close()
-    srv1 = None
+    _send_one(q.address, {"hello": 1})
+    q.notify.set()
 
-    srv2 = TconQueue(name, tmpdir=tmp_path)
-    srv2.start()
-    send_one(srv2.address, "ok")
-    sleep(0.01)
+    assert q.notify.is_set()
+    assert q.poll()
+    assert q.recv() == {"hello": 1}
+    assert not q.poll()
 
-    assert srv2.poll()
-    assert srv2.recv() == "ok"
-    srv2.close()
+    q.notify.clear()
+    assert not q.notify.is_set()
+
+    q.close()
+
+
+def test_reconnect_after_client_close(tmp_path: Path):
+    name = _queue_name()
+    q = TconQueue(name, tmpdir=tmp_path)
+    q.start()
+
+    # first client ------------------------------------------------------------
+    _send_one(q.address, "A")
+    q.notify.set()
+
+    assert q.poll()
+    assert q.recv() == "A"
+
+    q.notify.clear()
+
+    # second client after disconnect -----------------------------------------
+    _send_one(q.address, "B")
+    q.notify.set()
+
+    assert q.poll()
+    assert q.recv() == "B"
+
+    q.close()

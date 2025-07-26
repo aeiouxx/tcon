@@ -70,8 +70,8 @@ def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, bas
         globals().update({sym: getattr(mod, sym) for sym in from_list})
         _MOD_MTIMES[name] = mtime
     else:
-        # reimporting module
-        mod = importlib.reload(sys.modules[name])
+        mod = importlib.reload(
+            sys.modules[name]) if name in sys.modules else importlib.import_module(name)
         _MOD_MTIMES[name] = mtime
 
 
@@ -87,6 +87,7 @@ def _load():
     base = pathlib.Path(__file__).parent
     hot_import("common.logger", from_list=["get_logger"], base_path=base)
     hot_import("common.ipc", from_list=["ServerProcess"], base_path=base)
+    hot_import("common.models", base_path=base)
     log = get_logger(__file__, "DEBUG")
     _SERVER = ServerProcess()
 

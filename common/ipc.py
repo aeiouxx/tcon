@@ -51,11 +51,19 @@ class TconQueue:
 
     def poll(self) -> bool:
         self._ensure_connection()
-        return self._conn.poll(0)
+        try:
+            return self._conn.poll(0)
+        except (BrokenPipeError, EOFError, OSError):
+            self._reset_conn()
+            return False
 
     def recv(self) -> Any:
         self._ensure_connection()
-        return self._conn.recv()
+        try:
+            return self._conn.recv()
+        except (BrokenPipeError, EOFError, OSError):
+            self._reset_conn()
+            raise
 
     def close(self) -> None:
         if self._conn:
@@ -67,8 +75,11 @@ class TconQueue:
         self._cleanup()
 # HELPERS
 
-    def take_client(self) -> mpc.Client:
-        return mpc.Client(self.address, self.family())
+    def _reset_conn(self):
+        if self._conn is not None:
+            with suppress(OSError):
+                self._conn.close()
+        self._conn = None
 
     @staticmethod
     def family() -> str:
