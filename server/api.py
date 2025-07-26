@@ -8,7 +8,7 @@ from common.models import (
     CreateIncidentDto,
     RemoveIncidentDto)
 from common.logger import get_logger
-from common.status import StatusCode
+from http import HTTPStatus
 
 
 log = get_logger(__file__, level="DEBUG", disable_ansi=False)
@@ -28,16 +28,18 @@ def build_app(queue: mp.Queue,
 
     app = FastAPI(title="tcon API", version="0.0.2")
 
-    @app.get("/health")
+    @app.get("/health", status_code=HTTPStatus.OK)
     def health():
         log.debug("Health check request")
-        return {"status": "it's alive!"}
+        return {"status": "I'm chilling."}
 
-    @app.post("/incident", status_code=StatusCode.ACCEPTED)
+    @app.post("/incident", status_code=HTTPStatus.ACCEPTED)
     def create_incident(incident: CreateIncidentDto):
         return _accept(CommandType.INCIDENT_CREATE, incident.model_dump())
 
-    @app.delete("/incident", status_code=StatusCode.ACCEPTED)
+    # RFC 9110 - `content received in a DELETE request has no generally defined semantics`
+    # we could put the information in request parameters, but this is more comfortable
+    @app.delete("/incident", status_code=HTTPStatus.ACCEPTED)
     def remove_incident(incident: RemoveIncidentDto):
         return _accept(CommandType.INCIDENT_REMOVE, incident.model_dump())
 

@@ -4,8 +4,6 @@ Unit‑tests for the queue‑based IPC without starting Uvicorn.
 import signal
 import time
 import multiprocessing as mp
-from pathlib import Path
-import uuid
 
 import pytest
 
@@ -24,7 +22,6 @@ def _dummy_run_api(queue: mp.Queue, event: mp.Event, *_):
 @pytest.fixture(autouse=True)
 def _patch_api(monkeypatch):
     monkeypatch.setattr(server.api, "run_api_process", _dummy_run_api)
-    yield    # fixture auto‑unpatches
 
 
 # Tests
