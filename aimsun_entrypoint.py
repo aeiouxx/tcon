@@ -87,7 +87,6 @@ def _load():
     base = pathlib.Path(__file__).parent
     hot_import("common.logger", from_list=["get_logger"], base_path=base)
     hot_import("common.ipc", from_list=["ServerProcess"], base_path=base)
-    hot_import("common.models")
     log = get_logger(__file__, "DEBUG")
     _SERVER = ServerProcess()
 
@@ -111,6 +110,11 @@ def AAPISimulationReady() -> int:
 # thats inconsequential, sort by initime and process only entries that will happen next step
 # or just pickup everything from the queue? Processing will cost time (although not every time)
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
+    if _SERVER.notify.is_set():
+        for cmd in _SERVER.try_recv_all():
+            # TODO: Lookup handler in dispatch table and process
+            log.info("Picked up command: %s", cmd.type)
+        _SERVER.notify.clear()  # clear after we process all messages
     return 0
 
 
@@ -123,8 +127,10 @@ def AAPIFinish() -> int:
 
 
 def AAPIUnLoad() -> int:
+    global _SERVER
     log.debug("AAPIUnLoad()")
     _SERVER.stop()
+    _SERVER = None
     return 0
 
 
@@ -162,4 +168,20 @@ def AAPIVehicleStartParking(idveh: int, idsection: int, time: float) -> int:
 
 
 if __name__ == "__main__":
-    raise ImportError("DO NOT RUN ME MANUALLY")
+    import time
+    import signal
+    import sys
+    _load()
+    log = get_logger("AIMSUN_ENTRY", "DEBUG", disable_ansi=False)
+    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+    with ServerProcess() as srv:
+        while True:
+            log.debug("blocking...")
+            if not srv._proc or not srv._proc.is_alive():
+                log.critical("Server is not running man")
+                break
+            srv.notify.wait()
+            for cmd in srv.try_recv_all():
+                log.debug("Received %s", cmd)
+            srv.notify.clear()
+            log.debug("Back to waiting…")
