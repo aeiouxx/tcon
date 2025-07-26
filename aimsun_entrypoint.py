@@ -11,15 +11,13 @@ from __future__ import annotations
 import importlib
 import sys
 import pathlib
-import logging
-from types import ModuleType
 
 # HACK: Only for static analysis, at runtime we import only via our importing mechanism
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from common.logger import get_logger
-    from common.ipc import ServerProcess
     from common.models import CommandType, Command, Incident
+    from server.ipc import ServerProcess
 
 try:
     from AAPI import *
@@ -86,8 +84,8 @@ def _load():
     global log, _SERVER
     base = pathlib.Path(__file__).parent
     hot_import("common.logger", from_list=["get_logger"], base_path=base)
-    hot_import("common.ipc", from_list=["ServerProcess"], base_path=base)
     hot_import("common.models", base_path=base)
+    hot_import("server.ipc", from_list=["ServerProcess"], base_path=base)
     log = get_logger(__file__, "DEBUG")
     _SERVER = ServerProcess()
 
