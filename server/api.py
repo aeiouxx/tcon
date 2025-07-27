@@ -45,11 +45,14 @@ def register_incidents(app: FastAPI,
 
     @app.post("/incident", status_code=HTTPStatus.ACCEPTED)
     def incident_create(incident: IncidentCreateDto):
+        # TODO: support the aimsun visibility for 7.0 models or not?
         return _accept(queue, notify_event, CommandType.INCIDENT_CREATE, incident.model_dump())
 
+    # FIXME: this doesn't work, incident not present... WTF
     @app.delete("/incident", status_code=HTTPStatus.ACCEPTED)
     def incident_remove(incident: IncidentRemoveDto):
-        return _accept(queue, notify_event, CommandType.INCIDENT_REMOVE, incident.model_dump())
+        _accept(queue, notify_event, CommandType.INCIDENT_REMOVE, incident.model_dump())
+        return {"msg": "Thanks for the command, sadly this one isn't implemented in Aimsun API correctly..."}
 
     @app.delete("/incidents/section/{section_id}")
     def incidents_clear_section(section_id=Path(...)):

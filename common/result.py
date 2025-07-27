@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import TypeVar, Generic, Optional
 from common.status import AimsunStatus
 
@@ -28,7 +29,16 @@ class Result(Generic[T]):
     def __repr__(self) -> str:
         return f"Result(status={self.status}, value={self.value}, code={self.raw_code}, msg={self.message})"
 
-
-def from_aimsun_code(code: int, *, value: Optional[T] = None, msg: Optional[str] = None) -> Result[T]:
-    status = AimsunStatus.from_code(code)
-    return Result(status=status, value=value if status == AimsunStatus.OK else None, raw_code=code, message=msg)
+    # TODO: hopefully the API is consistent with err values as < 0...
+    @classmethod
+    def from_aimsun(cls,
+                    result: int, *,
+                    msg_ok: str = None,
+                    msg_fail: str = None) -> Result[int]:
+        success = result >= 0
+        status = AimsunStatus.OK if success else AimsunStatus.from_code(result)
+        message = (msg_ok if success else msg_fail)
+        return cls(status=status,
+                   raw_code=result,
+                   value=result if success else None,
+                   message=message)

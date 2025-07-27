@@ -5,17 +5,16 @@ be included in each scenario, where usage is required, directly via Aimsun
 
 Aimsun will then use the provided callbacks during simulation execution.
 
-WARNING: While the simulation is paused / not executing, Aimsun holds the GIL, so threading does not work as one would expect here.
+WARNING: While the simulation is paused / not executing, Aimsun holds the GIL.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 import importlib
 import sys
 import pathlib
 import json
 from logging import Logger
 from pydantic import BaseModel
-
 
 try:
     from AAPI import *
@@ -37,7 +36,11 @@ if "_MOD_MTIMES" not in globals():
 _MOD_MTIMES: dict[str, float] = globals()["_MOD_MTIMES"]
 
 
-def _import_one(name: str, alias: str = None, from_list: list[str] = None, *, base_path: str | pathlib.Path = ".") -> None:
+def _import_one(name: str,
+                alias: str = None,
+                from_list: list[str] = None,
+                *,
+                base_path: str | pathlib.Path = pathlib.Path(__file__).parent) -> None:
     # WARNING: HOT RELOADING MODULES WITH GLOBAL SCRIPTS IS NOT A GOOD IDEA, AS WE MIGHT RERUN
     # TODO: implement aliasing
     """
@@ -71,20 +74,17 @@ def _import_one(name: str, alias: str = None, from_list: list[str] = None, *, ba
 
 
 def _imports():
-    base = pathlib.Path(__file__).parent
-    _import_one("common.logger", from_list=["get_logger"], base_path=base)
+    _import_one("common.logger", from_list=["get_logger"])
     _import_one("common.models",
                 from_list=["CommandType",
                            "Command",
                            "IncidentCreateDto",
                            "IncidentRemoveDto",
                            "IncidentsClearSectionDto",
-                           "get_payload_cls"],
-                base_path=base)
-    _import_one("common.status", from_list=["AimsunStatus"], base_path=base)
-    _import_one("common.result", from_list=[
-                "Result", "from_aimsun_code"], base_path=base)
-    _import_one("server.ipc", from_list=["ServerProcess"], base_path=base)
+                           "get_payload_cls"])
+    _import_one("common.status", from_list=["AimsunStatus"])
+    _import_one("common.result", from_list=["Result"])
+    _import_one("server.ipc", from_list=["ServerProcess"])
 
 
 if TYPE_CHECKING:
@@ -96,8 +96,7 @@ if TYPE_CHECKING:
         IncidentRemoveDto,
         IncidentsClearSectionDto,
         get_payload_cls)
-    from common.status import AimsunStatus
-    from common.result import Result, from_aimsun_code
+    from common.result import Result
     from server.ipc import ServerProcess
 else:
     _imports()
@@ -105,64 +104,67 @@ else:
     # < Module imports -------------------------------------------------------------
     # > Command handlers -----------------------------------------------------------
 if "_HANDLERS" not in globals():
-    _HANDLERS: dict[CommandType, callable] = {}
+    _HANDLERS: dict[CommandType, Callable[..., Result]] = {}
 
 
 def register_handler(type: CommandType):
     def decorator(func: callable):
-        existing = _HANDLERS.get(type)
-        if existing is not None and existing is not func:
-            import warnings
-            warnings.warn(
-                f"Handler already registered for {type}; ignoring",
-                stacklevel=2)
-            return existing
         _HANDLERS[type] = func
         return func
     return decorator
 
 
 @register_handler(CommandType.INCIDENT_CREATE)
-def _handle_incident_create(payload: IncidentCreateDto) -> Result[int]:
-    incident_id = AKIGenerateIncident(
+def _incident_create(payload: IncidentCreateDto) -> Result[int]:
+    result = AKIGenerateIncident(
         payload.section_id,
         payload.lane,
         payload.position,
         payload.length,
-        payload.duration,
         payload.ini_time,
+        payload.duration,
         payload.visibility_distance,
         payload.update_id_group,
         payload.apply_speed_reduction,
         payload.upstream_distance_SR,
         payload.downstream_distance_SR,
         payload.max_speed_SR)
-    if result >= 0:
-        return Result(status=AimsunStatus.OK,
-                      value=incident_id,
-                      message="Incident created successfuly")
-    else:
-        return from_aimsun_code(result, msg="Incident creation failed")
+    return Result.from_aimsun(result,
+                              msg_ok=f"Incident created successfuly, id: {result}.",
+                              msg_fail="Incident creation failed")
 
 
 @register_handler(CommandType.INCIDENT_REMOVE)
 def _incident_remove(payload: IncidentRemoveDto) -> Result[int]:
+    # WARNING: This literally doesn't work 99.99 % of time, the documentation must be wrong,
+    # or they're comparing floats for equality or some stupid stuff
+    # same section + lane + position still basically never works
+    # If you do AKIGenerateIncident(20, 1, 30...)
+    # And then AKIRemoveIncident(20, 1, 30), it returns INCIDENT_NOT_PRESENT... even though
+    # I can literally see it and doing clear section clears it, WTF????
     result = AKIRemoveIncident(
         payload.section_id,
         payload.lane,
         payload.position)
-    return result
+    return Result.from_aimsun(result,
+                              msg_ok=f"Removed incident from section: {payload.section_id}",
+                              msg_fail="Incident removal failed")
 
 
 @register_handler(CommandType.INCIDENTS_CLEAR_SECTION)
-def _incident_clear_section(payload: IncidentsClearSectionDto) -> int:
+def _incident_clear_section(payload: IncidentsClearSectionDto) -> Result[int]:
     result = AKIRemoveAllIncidentsInSection(payload.section_id)
-    return result
+    return Result.from_aimsun(result,
+                              msg_ok=f"Cleared incidents from section: {payload.section_id}",
+                              msg_fail=f"Failed clearing incidents for section: {payload.section_id}")
 
 
 @register_handler(CommandType.INCIDENTS_RESET)
-def _incidents_reset() -> int:
-    return AKIResetAllIncidents()
+def _incidents_reset() -> Result[int]:
+    result = AKIResetAllIncidents()
+    return Result.from_aimsun(result,
+                              msg_ok="Cleared all incidents",
+                              msg_fail="Failed clearing incidents")
 
 
 # < Command handlers -----------------------------------------------------------
@@ -172,7 +174,7 @@ _SERVER: ServerProcess | None
 
 
 def _load():
-    _imports()  # if no modifications, doesn't reimport anyway
+    _imports()  # check reimport on sim start
     global log, _SERVER
     log = get_logger(__file__, "DEBUG")
     _SERVER = ServerProcess()
@@ -190,38 +192,43 @@ def AAPIInit() -> int:
 
 
 def AAPISimulationReady() -> int:
+    # TODO: Queue up commands that are contained in config file here
     return 0
 
 
-# FIXME: how will we actually pickup stuff from the queue, what if we queue up a ton of stuff
-# thats inconsequential, sort by initime and process only entries that will happen next step
-# or just pickup everything from the queue? Processing will cost time (although not every time)
+def frange(start, stop, step):
+    while start < stop:
+        yield start
+        start += step
+
+
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
     if _SERVER.notify.is_set():
         for raw_cmd in _SERVER.try_recv_all():
-            log.debug("Received message: %s", json.dumps(raw_cmd, indent=2))
             try:
                 cmd: Command = Command.parse_obj(raw_cmd)
-
+                log.debug("Received '%s' command, body:\n%s",
+                          cmd.type.name,
+                          json.dumps(cmd.payload, indent=2))
                 handler = _HANDLERS.get(cmd.type)
                 if handler is None:
                     log.warning(
                         "No handler registered for command type: %s", cmd.type)
                     continue
-
                 dto_cls: BaseModel = get_payload_cls(cmd.type)
                 payload = dto_cls.parse_obj(
                     cmd.payload) if dto_cls is not None else cmd.payload
                 result = handler(payload)
                 if isinstance(result, Result):
                     if result.is_ok():
-                        log.info("%s->%s", result.message, result.unwrap())
+                        log.info("%s", result.message)
                     else:
-                        log.warning("Command failed: %s (code=%d)",
-                                    result.status.name, result.raw_code)
+                        log.warning("%s: %s (code=%d)",
+                                    result.message,
+                                    result.status.name,
+                                    result.raw_code)
             except Exception as e:
-                log.exception("Failed when processing command: %s", e)
-        _SERVER.notify.clear()
+                log.exception("Failed when processing message: %s", e)
     return 0
 
 
@@ -281,12 +288,18 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
     with ServerProcess() as srv:
         while True:
-            log.debug("blocking...")
             if not srv._proc or not srv._proc.is_alive():
-                log.critical("Server is not running man")
+                log.critical("Server is not running")
                 break
             srv.notify.wait()
-            for cmd in srv.try_recv_all():
-                log.debug("Received %s", cmd)
-            srv.notify.clear()
-            log.debug("Back to waiting…")
+            for raw_cmd in srv.try_recv_all():
+                try:
+                    cmd: Command = Command.model_validate(raw_cmd)
+                    log.info("Received command:\n%s", json.dumps(cmd.__dict__, indent=2))
+                    handler = _HANDLERS.get(cmd.type)
+                    if handler is None:
+                        log.warning(
+                            "No handler registered for command type: %s", cmd.type)
+                        continue
+                except Exception as e:
+                    log.exception("Failed when processing message: %s", e)
