@@ -8,16 +8,14 @@ Aimsun will then use the provided callbacks during simulation execution.
 WARNING: While the simulation is paused / not executing, Aimsun holds the GIL, so threading does not work as one would expect here.
 """
 from __future__ import annotations
+from typing import TYPE_CHECKING
 import importlib
 import sys
 import pathlib
+import json
+from logging import Logger
+from pydantic import BaseModel
 
-# HACK: Only for static analysis, at runtime we import only via our importing mechanism
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from common.logger import get_logger
-    from common.models import CommandType, Command, Incident
-    from server.ipc import ServerProcess
 
 try:
     from AAPI import *
@@ -26,7 +24,6 @@ except ImportError:
     stderr.write("This module should not be launched manually "
                  "nor via 'aconsole --script'. "
                  "It's meant to be managed by Aimsun Next APIs in Scenario > Properties > Aimsun Next APIs\n")
-
 # > Module imports -------------------------------------------------------------
 # FIXME: If we actually wanted a more robust system, the better way would be to
 # recompile and patch the bytecode of the module
@@ -40,7 +37,7 @@ if "_MOD_MTIMES" not in globals():
 _MOD_MTIMES: dict[str, float] = globals()["_MOD_MTIMES"]
 
 
-def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, base_path: str | pathlib.Path = ".") -> None:
+def _import_one(name: str, alias: str = None, from_list: list[str] = None, *, base_path: str | pathlib.Path = ".") -> None:
     # WARNING: HOT RELOADING MODULES WITH GLOBAL SCRIPTS IS NOT A GOOD IDEA, AS WE MIGHT RERUN
     # TODO: implement aliasing
     """
@@ -73,19 +70,110 @@ def hot_import(name: str, alias: str = None, from_list: list[str] = None, *, bas
         _MOD_MTIMES[name] = mtime
 
 
-# < Module imports -------------------------------------------------------------
-# > AAPI CALLBACKS -------------------------------------------------------------
-log = None
+def _imports():
+    base = pathlib.Path(__file__).parent
+    _import_one("common.logger", from_list=["get_logger"], base_path=base)
+    _import_one("common.models",
+                from_list=["CommandType",
+                           "Command",
+                           "IncidentCreateDto",
+                           "IncidentRemoveDto",
+                           "IncidentsClearSectionDto",
+                           "get_payload_cls"],
+                base_path=base)
+    _import_one("common.status", from_list=["AimsunStatus"], base_path=base)
+    _import_one("common.result", from_list=[
+                "Result", "from_aimsun_code"], base_path=base)
+    _import_one("server.ipc", from_list=["ServerProcess"], base_path=base)
 
-_SERVER: ServerProcess | None = None
+
+if TYPE_CHECKING:
+    from common.logger import get_logger
+    from common.models import (
+        CommandType,
+        Command,
+        IncidentCreateDto,
+        IncidentRemoveDto,
+        IncidentsClearSectionDto,
+        get_payload_cls)
+    from common.status import AimsunStatus
+    from common.result import Result, from_aimsun_code
+    from server.ipc import ServerProcess
+else:
+    _imports()
+
+    # < Module imports -------------------------------------------------------------
+    # > Command handlers -----------------------------------------------------------
+if "_HANDLERS" not in globals():
+    _HANDLERS: dict[CommandType, callable] = {}
+
+
+def register_handler(type: CommandType):
+    def decorator(func: callable):
+        existing = _HANDLERS.get(type)
+        if existing is not None and existing is not func:
+            import warnings
+            warnings.warn(
+                f"Handler already registered for {type}; ignoring",
+                stacklevel=2)
+            return existing
+        _HANDLERS[type] = func
+        return func
+    return decorator
+
+
+@register_handler(CommandType.INCIDENT_CREATE)
+def _handle_incident_create(payload: IncidentCreateDto) -> Result[int]:
+    incident_id = AKIGenerateIncident(
+        payload.section_id,
+        payload.lane,
+        payload.position,
+        payload.length,
+        payload.duration,
+        payload.ini_time,
+        payload.visibility_distance,
+        payload.update_id_group,
+        payload.apply_speed_reduction,
+        payload.upstream_distance_SR,
+        payload.downstream_distance_SR,
+        payload.max_speed_SR)
+    if result >= 0:
+        return Result(status=AimsunStatus.OK,
+                      value=incident_id,
+                      message="Incident created successfuly")
+    else:
+        return from_aimsun_code(result, msg="Incident creation failed")
+
+
+@register_handler(CommandType.INCIDENT_REMOVE)
+def _incident_remove(payload: IncidentRemoveDto) -> Result[int]:
+    result = AKIRemoveIncident(
+        payload.section_id,
+        payload.lane,
+        payload.position)
+    return result
+
+
+@register_handler(CommandType.INCIDENTS_CLEAR_SECTION)
+def _incident_clear_section(payload: IncidentsClearSectionDto) -> int:
+    result = AKIRemoveAllIncidentsInSection(payload.section_id)
+    return result
+
+
+@register_handler(CommandType.INCIDENTS_RESET)
+def _incidents_reset() -> int:
+    return AKIResetAllIncidents()
+
+
+# < Command handlers -----------------------------------------------------------
+# > AAPI CALLBACKS -------------------------------------------------------------
+log: Logger | None
+_SERVER: ServerProcess | None
 
 
 def _load():
+    _imports()  # if no modifications, doesn't reimport anyway
     global log, _SERVER
-    base = pathlib.Path(__file__).parent
-    hot_import("common.logger", from_list=["get_logger"], base_path=base)
-    hot_import("common.models", base_path=base)
-    hot_import("server.ipc", from_list=["ServerProcess"], base_path=base)
     log = get_logger(__file__, "DEBUG")
     _SERVER = ServerProcess()
 
@@ -110,10 +198,30 @@ def AAPISimulationReady() -> int:
 # or just pickup everything from the queue? Processing will cost time (although not every time)
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
     if _SERVER.notify.is_set():
-        for cmd in _SERVER.try_recv_all():
-            # TODO: Lookup handler in dispatch table and process
-            log.info("Picked up command: %s", cmd.type)
-        _SERVER.notify.clear()  # clear after we process all messages
+        for raw_cmd in _SERVER.try_recv_all():
+            log.debug("Received message: %s", json.dumps(raw_cmd, indent=2))
+            try:
+                cmd: Command = Command.parse_obj(raw_cmd)
+
+                handler = _HANDLERS.get(cmd.type)
+                if handler is None:
+                    log.warning(
+                        "No handler registered for command type: %s", cmd.type)
+                    continue
+
+                dto_cls: BaseModel = get_payload_cls(cmd.type)
+                payload = dto_cls.parse_obj(
+                    cmd.payload) if dto_cls is not None else cmd.payload
+                result = handler(payload)
+                if isinstance(result, Result):
+                    if result.is_ok():
+                        log.info("%s->%s", result.message, result.unwrap())
+                    else:
+                        log.warning("Command failed: %s (code=%d)",
+                                    result.status.name, result.raw_code)
+            except Exception as e:
+                log.exception("Failed when processing command: %s", e)
+        _SERVER.notify.clear()
     return 0
 
 
@@ -167,9 +275,7 @@ def AAPIVehicleStartParking(idveh: int, idsection: int, time: float) -> int:
 
 
 if __name__ == "__main__":
-    import time
     import signal
-    import sys
     _load()
     log = get_logger("AIMSUN_ENTRY", "DEBUG", disable_ansi=False)
     signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
