@@ -33,7 +33,6 @@ def test_start_stop_cycle():
         assert srv._proc and srv._proc.is_alive()
 
         srv.queue.put({"hello": 1})
-        srv.notify.set()
 
         # Wait for the feeder thread to actually put it there
         # in the simulation we don't block on purpose
@@ -46,13 +45,11 @@ def test_start_stop_cycle():
             time.sleep(0.005)
 
         assert msgs == [{"hello": 1}]
-        assert not srv.notify.is_set()
     finally:
         srv.stop()
 
     assert srv._proc is None
     assert srv.queue is None
-    assert srv.notify is None
 
 
 def test_restart_after_hard_kill():

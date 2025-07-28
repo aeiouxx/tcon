@@ -13,8 +13,9 @@ import pytest
 from server.ipc import ServerProcess
 from common.models import (
     CommandType,
-    CreateIncidentDto,
-    RemoveIncidentDto)
+    IncidentCreateDto,
+    IncidentRemoveDto,
+    IncidentsClearSectionDto)
 from common.http import HTTPMethod
 from http import HTTPStatus
 
@@ -59,7 +60,7 @@ def test_full_stack_with_dtos():
         assert _wait_until_ready(client)
 
         # 2)  POST /incident  -----------------------------------------------
-        create_dto = CreateIncidentDto(
+        create_dto = IncidentCreateDto(
             section_id=1,
             lane=1,
             position=0.0,
@@ -70,15 +71,12 @@ def test_full_stack_with_dtos():
         r = client.post("/incident", json=create_dto.model_dump())
         assert r.status_code == HTTPStatus.ACCEPTED
 
-        assert srv.notify.wait(timeout=1.0)
         cmd = next(srv.try_recv_all())
         assert cmd["type"] == CommandType.INCIDENT_CREATE
         assert cmd["payload"]["section_id"] == 1
-        srv.notify.clear()
-        assert not srv.notify.is_set()
 
         # 3)  DELETE /incident  ---------------------------------------------
-        remove_dto = RemoveIncidentDto(
+        remove_dto = IncidentRemoveDto(
             section_id=1,
             lane=1,
             position=0.0,
@@ -88,11 +86,9 @@ def test_full_stack_with_dtos():
                            json=remove_dto.model_dump())
         assert r.status_code == HTTPStatus.ACCEPTED
 
-        assert srv.notify.wait(timeout=1.0)
         cmd2 = next(srv.try_recv_all())
         assert cmd2["type"] == CommandType.INCIDENT_REMOVE
         assert cmd2["payload"]["lane"] == 1
-        srv.notify.clear()
     finally:
         client.close()
         srv.stop()

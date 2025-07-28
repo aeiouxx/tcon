@@ -4,30 +4,42 @@ from pydantic import BaseModel, Field
 
 
 class CommandType(str, Enum):
-    PING = "ping"
     INCIDENT_CREATE = "incident_create"
     INCIDENT_REMOVE = "incident_remove"
+    INCIDENTS_CLEAR_SECTION = "incidents_clear_section"
+    INCIDENTS_RESET = "incidents_reset"
     MEASURE_CREATE = "measure_create"
     MEASURE_REMOVE = "measure_remove"
 
 
 class Command(BaseModel):
     type: CommandType
-    payload: dict | None | CreateIncidentDto | RemoveIncidentDto = None
+    payload: dict | None
 
 
-"""
-For API we want the following:
-    1. ability to invoke incident(s)
-    2. ability to cancel ongoing incident(s)
-    3. ability to implement traffic measures
-    4. ability to cancel traffic measures
-
-* Perhaps the ability to send whole definition at once?
-"""
+_COMMAND_REGISTRY: dict[CommandType, type[BaseModel]] = {}
+_DTO_TO_TYPE: dict[type[BaseModel], CommandType] = {}
 
 
-class CreateIncidentDto(BaseModel):
+def get_command_type(dto_cls: type[BaseModel]) -> CommandType | None:
+    return _DTO_TO_TYPE.get(dto_cls)
+
+
+def get_payload_cls(type: CommandType) -> type[BaseModel] | None:
+    return _COMMAND_REGISTRY.get(type)
+
+
+def register_command(type: CommandType):
+    def decorator(cls: type[BaseModel]):
+        if type not in _COMMAND_REGISTRY:
+            _COMMAND_REGISTRY[type] = cls
+            _DTO_TO_TYPE[cls] = type
+        return cls
+    return decorator
+
+
+@register_command(CommandType.INCIDENT_CREATE)
+class IncidentCreateDto(BaseModel):
     """Incident to be generated"""
     section_id: int = Field(...,
                             description="Identifier of the section of the incident")
@@ -55,10 +67,17 @@ class CreateIncidentDto(BaseModel):
         default=50, description="If the reduction is to be applied, the target reduced speed")
 
 
-class RemoveIncidentDto(BaseModel):
+@register_command(CommandType.INCIDENT_REMOVE)
+class IncidentRemoveDto(BaseModel):
     section_id: int = Field(
         ..., description="Identifier of the section where the incident to remove is located")
     lane: int = Field(...,
                       description="Lane where the incident will be generated")
     position: float = Field(
         ..., description="Position of the incident in the section (from the beginning of the section).")
+
+
+@register_command(CommandType.INCIDENTS_CLEAR_SECTION)
+class IncidentsClearSectionDto(BaseModel):
+    section_id: int = Field(
+        ..., description="Identifier of the section to clear of incidents")

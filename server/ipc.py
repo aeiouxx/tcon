@@ -23,7 +23,6 @@ class ServerProcess:
         self.executable = self._resolve_pajtn()
         # IPC
         self.queue: mp.Queue = mp.Queue()
-        self.notify: mp.Event = mp.Event()
         # Handle
         self._proc: mp.Process | None = None
 
@@ -33,7 +32,7 @@ class ServerProcess:
 
         self._proc = mp.Process(
             target=run_api_process,
-            args=(self.queue, self.notify, self.host, self.port),
+            args=(self.queue, self.host, self.port),
             name="tcon-api")
         self._proc.start()
         log.info("API started on http://%s:%d (pid=%d)",
@@ -52,16 +51,12 @@ class ServerProcess:
         self.queue.join_thread()
         self.queue = None
 
-        self.notify.clear()
-        self.notify = None
-
     def try_recv_all(self) -> Iterator[object]:
         """ Drain all pending messagess """
         while True:
             try:
                 yield self.queue.get_nowait()
             except mp.queues.Empty:
-                self.notify.clear()
                 break
 
     @classmethod
