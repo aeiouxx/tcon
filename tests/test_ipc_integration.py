@@ -71,7 +71,6 @@ def test_full_stack_with_dtos():
         r = client.post("/incident", json=create_dto.model_dump())
         assert r.status_code == HTTPStatus.ACCEPTED
 
-        assert srv.notify.wait(timeout=1.0)
         cmd = next(srv.try_recv_all())
         assert cmd["type"] == CommandType.INCIDENT_CREATE
         assert cmd["payload"]["section_id"] == 1
@@ -87,7 +86,6 @@ def test_full_stack_with_dtos():
                            json=remove_dto.model_dump())
         assert r.status_code == HTTPStatus.ACCEPTED
 
-        assert srv.notify.wait(timeout=1.0)
         cmd2 = next(srv.try_recv_all())
         assert cmd2["type"] == CommandType.INCIDENT_REMOVE
         assert cmd2["payload"]["lane"] == 1

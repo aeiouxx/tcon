@@ -136,12 +136,8 @@ def _incident_create(payload: IncidentCreateDto) -> Result[int]:
 
 @register_handler(CommandType.INCIDENT_REMOVE)
 def _incident_remove(payload: IncidentRemoveDto) -> Result[int]:
-    # WARNING: This literally doesn't work 99.99 % of time, the documentation must be wrong,
-    # or they're comparing floats for equality or some stupid stuff
-    # same section + lane + position still basically never works
-    # If you do AKIGenerateIncident(20, 1, 30...)
-    # And then AKIRemoveIncident(20, 1, 30), it returns INCIDENT_NOT_PRESENT... even though
-    # I can literally see it and doing clear section clears it, WTF????
+    # WARNING: This literally doesn't work 99.999 % of the time
+    # did some intern at aimsun do strict comparison on floating point values?
     result = AKIRemoveIncident(
         payload.section_id,
         payload.lane,
@@ -196,39 +192,32 @@ def AAPISimulationReady() -> int:
     return 0
 
 
-def frange(start, stop, step):
-    while start < stop:
-        yield start
-        start += step
-
-
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
-    if _SERVER.notify.is_set():
-        for raw_cmd in _SERVER.try_recv_all():
-            try:
-                cmd: Command = Command.parse_obj(raw_cmd)
-                log.debug("Received '%s' command, body:\n%s",
-                          cmd.type.name,
-                          json.dumps(cmd.payload, indent=2))
-                handler = _HANDLERS.get(cmd.type)
-                if handler is None:
-                    log.warning(
-                        "No handler registered for command type: %s", cmd.type)
-                    continue
-                dto_cls: BaseModel = get_payload_cls(cmd.type)
-                payload = dto_cls.parse_obj(
-                    cmd.payload) if dto_cls is not None else cmd.payload
-                result = handler(payload)
-                if isinstance(result, Result):
-                    if result.is_ok():
-                        log.info("%s", result.message)
-                    else:
-                        log.warning("%s: %s (code=%d)",
-                                    result.message,
-                                    result.status.name,
-                                    result.raw_code)
-            except Exception as e:
-                log.exception("Failed when processing message: %s", e)
+    for raw_cmd in _SERVER.try_recv_all():
+        try:
+            cmd: Command = Command.parse_obj(raw_cmd)
+            log.debug("Received '%s' command, body:\n%s",
+                      cmd.type.name,
+                      json.dumps(cmd.payload, indent=2))
+            handler = _HANDLERS.get(cmd.type)
+            if handler is None:
+                log.warning(
+                    "No handler registered for command type: %s", cmd.type)
+                continue
+            dto_cls: BaseModel = get_payload_cls(cmd.type)
+            payload = dto_cls.parse_obj(
+                cmd.payload) if dto_cls is not None else cmd.payload
+            result = handler(payload)
+            if isinstance(result, Result):
+                if result.is_ok():
+                    log.info("%s", result.message)
+                else:
+                    log.warning("%s: %s (code=%d)",
+                                result.message,
+                                result.status.name,
+                                result.raw_code)
+        except Exception as e:
+            log.exception("Failed when processing message: %s", e)
     return 0
 
 
@@ -291,7 +280,6 @@ if __name__ == "__main__":
             if not srv._proc or not srv._proc.is_alive():
                 log.critical("Server is not running")
                 break
-            srv.notify.wait()
             for raw_cmd in srv.try_recv_all():
                 try:
                     cmd: Command = Command.model_validate(raw_cmd)
@@ -302,4 +290,6 @@ if __name__ == "__main__":
                             "No handler registered for command type: %s", cmd.type)
                         continue
                 except Exception as e:
+                    import time
+                    time.sleep(1)
                     log.exception("Failed when processing message: %s", e)
