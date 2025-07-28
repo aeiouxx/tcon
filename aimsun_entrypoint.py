@@ -74,7 +74,7 @@ def _import_one(name: str,
 
 
 def _imports():
-    _import_one("common.logger", from_list=["get_logger"])
+    _import_one("common.logger", from_list=["EnsureLogger"])
     _import_one("common.models",
                 from_list=["CommandType",
                            "Command",
@@ -82,13 +82,13 @@ def _imports():
                            "IncidentRemoveDto",
                            "IncidentsClearSectionDto",
                            "get_payload_cls"])
-    _import_one("common.status", from_list=["AimsunStatus"])
+    _import_one("common.config", from_list=["AppConfig", "ScheduledCommand"])
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
 
 
 if TYPE_CHECKING:
-    from common.logger import get_logger
+    from common.logger import EnsureLogger
     from common.models import (
         CommandType,
         Command,
@@ -96,6 +96,7 @@ if TYPE_CHECKING:
         IncidentRemoveDto,
         IncidentsClearSectionDto,
         get_payload_cls)
+    from common.config import AppConfig, ScheduledCommand
     from common.result import Result
     from server.ipc import ServerProcess
 else:
@@ -166,13 +167,14 @@ def _incidents_reset() -> Result[int]:
 # < Command handlers -----------------------------------------------------------
 # > AAPI CALLBACKS -------------------------------------------------------------
 log: Logger | None
+config: AppConfig
 _SERVER: ServerProcess | None
 
 
 def _load():
     _imports()  # check reimport on sim start
     global log, _SERVER
-    log = get_logger(__file__, "DEBUG")
+    log = EnsureLogger("aimsun.entrypoint")
     _SERVER = ServerProcess()
 
 

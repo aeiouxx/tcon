@@ -9,11 +9,11 @@ from common.models import (
     IncidentRemoveDto,
     IncidentsClearSectionDto)
 from pydantic import BaseModel
-from common.logger import get_logger
+from common.logger import EnsureLogger
 from http import HTTPStatus
 
 
-log = get_logger(__file__, level="DEBUG", disable_ansi=False)
+log = EnsureLogger(__name__)
 
 
 def build_app(queue: mp.Queue):

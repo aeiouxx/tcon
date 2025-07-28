@@ -6,9 +6,9 @@ from typing import Iterator, Type
 import shutil
 
 
-from common.logger import get_logger
-log = get_logger(__file__)
+from common.logger import EnsureLogger
 
+log = EnsureLogger(__name__)
 # ServerProcess > --------------------------------------------------------------
 
 
