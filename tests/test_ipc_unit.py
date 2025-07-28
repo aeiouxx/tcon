@@ -74,3 +74,10 @@ def test_restart_after_hard_kill():
         assert srv._proc.is_alive()
     finally:
         srv.stop()
+
+
+def test_recv_when_empty_clears_flag():
+    with ServerProcess() as srv:
+        srv.notify.set()
+        list(srv.try_recv_all())
+        assert not srv.notify.is_set()

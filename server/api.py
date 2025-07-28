@@ -19,6 +19,7 @@ log = get_logger(__file__, level="DEBUG", disable_ansi=False)
 def build_app(queue: mp.Queue,
               notify_event: mp.Event):
     app = FastAPI(title="tcon API", version="0.0.2")
+    register_utility(app, queue, notify_event)
     register_incidents(app, queue, notify_event)
 
     return app
@@ -64,6 +65,14 @@ def register_incidents(app: FastAPI,
     @app.delete("/incidents/reset")
     def incidents_reset_all():
         return _accept(queue, notify_event, CommandType.INCIDENTS_RESET)
+
+
+def register_utility(app: FastAPI,
+                     queue: mp.Queue,
+                     notify_event: mp.Event):
+    @app.get("/health", status_code=HTTPStatus.OK)
+    def _health():
+        return {"status": "chilling"}
 
 
 def run_api_process(
