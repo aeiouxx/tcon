@@ -92,7 +92,6 @@ def test_logger_logfile_relative_to_project_root(tmp_path: Path, monkeypatch):
     }
     write_config(config_path, data)
 
-    # Monkeypatch get_project_root to return tmp_path for test isolation
     monkeypatch.setattr("common.logger.get_project_root", lambda: tmp_path)
 
     load_config(config_path)
@@ -110,7 +109,7 @@ def test_valid_schedule_parsing(tmp_path: Path):
     data = {
         "api": {"host": "127.0.0.1", "port": "9999"},
         "log": {"level": "INFO"},
-        "events": [
+        "schedule": [
             {
                 "command": "incidents_clear_section",
                 "time": 300.0,
@@ -139,7 +138,7 @@ def test_schedule_entry_with_missing_command_is_ignored(tmp_path: Path, monkeypa
 
     config_path = tmp_path / "config.json"
     data = {
-        "events": [
+        "schedule": [
             {"time": 123.4, "payload": {"x": 1}},
             {"command": "incident_remove", "time": 456.0, "payload": {"section_id": 5, "lane": 1, "position": 50.0}}
         ]
@@ -155,7 +154,7 @@ def test_schedule_entry_with_missing_command_is_ignored(tmp_path: Path, monkeypa
 def test_command_with_ini_time_at_or_before_schedule_is_rejected(tmp_path: Path):
     config_path = tmp_path / "config.json"
     data = {
-        "events": [
+        "schedule": [
             {
                 "command": "incident_create",
                 "time": 120.0,

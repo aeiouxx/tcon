@@ -90,8 +90,12 @@ class AppConfig:
         Optional override for the API port. If ``None`` the default
         ``ServerProcess`` port is used.
     schedule:
-        Sequence of scheduled events that should be executed when the
-        simulation runs. If empty, no events will be scheduled.
+        Sequence of scheduled command that should be executed when the
+        simulation runs either at a particular time or immediately.
+        If empty, no events will be scheduled.
+        WARNING: Schedule execution depends on simulation step, meaning
+        events will get executed when simulation time >= ScheduledCommand.time
+        as we could advance past the specific time because of our step value `acicle`
     """
     api_host: Optional[str] = None
     api_port: Optional[str] = None
@@ -129,9 +133,9 @@ def load_config(path: pathlib.Path = pathlib.Path(__file__).resolve().parent.par
             logfile=settings.get("logfile"),
             ansi=settings.get("ansi"))
 
-    events: List[ScheduledCommand] = []
-    events_data = data.get("events", [])
-    for item in events_data:
+    schedule: List[ScheduledCommand] = []
+    schedule_data = data.get("schedule", [])
+    for item in schedule_data:
         try:
             log.debug("Processing: '%s'", json.dumps(item, indent=2))
             cmd_type_str = item.get("command")
@@ -141,7 +145,7 @@ def load_config(path: pathlib.Path = pathlib.Path(__file__).resolve().parent.par
             cmd_type = CommandType(cmd_type_str)
             time_val = float(item.get("time", 0.0))
             payload = item.get("payload", {})
-            events.append(ScheduledCommand(command=cmd_type, time=time_val, payload=payload))
+            schedule.append(ScheduledCommand(command=cmd_type, time=time_val, payload=payload))
         except ValueError as exc:
             log.exception("Error parsing entry: %s", exc)
             raise  # let's warn the user i guess
@@ -151,4 +155,4 @@ def load_config(path: pathlib.Path = pathlib.Path(__file__).resolve().parent.par
 
     return AppConfig(api_host=api_host,
                      api_port=api_port,
-                     schedule=events)
+                     schedule=schedule)
