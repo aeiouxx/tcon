@@ -24,26 +24,6 @@ class LogLevelFormatter(logging.Formatter):
         return f"{colour}{base}{RESET}"
 
 
-def try_parse_log_level(value: Optional[str]) -> int:
-    if not value:
-        return logging.INFO
-    return getattr(logging, value.upper(), logging.INFO)
-
-
-class EnsureLogger:
-    def __init__(self, name: str):
-        self.name = name
-        self._logger: Optional[logging.Logger] = None
-
-    def _ensure_logger(self):
-        if self._logger is None:
-            self._logger = get_log_manager().get_logger(self.name)
-
-    def __getattr__(self, item):
-        self._ensure_logger()
-        return getattr(self._logger, item)
-
-
 class LogManager:
     def __init__(self,
                  default_level: str = "INFO",
@@ -138,3 +118,7 @@ def get_log_manager() -> LogManager:
             default_level="INFO",
             use_colors=True)
     return global_vars[cache_key]
+
+
+def get_logger(name: str) -> logging.Logger:
+    return get_log_manager().get_logger(name)

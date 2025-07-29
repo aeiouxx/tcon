@@ -1,11 +1,13 @@
 import json
 import pytest
 from pathlib import Path
+from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+from unittest.mock import MagicMock
 
 from common.config import load_config, ScheduledCommand, AppConfig
 from common.models import CommandType
 from common.logger import get_log_manager
-from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 
 def write_config(path: Path, data: dict) -> None:
@@ -130,7 +132,11 @@ def test_valid_schedule_parsing(tmp_path: Path):
     assert cmd.payload["section_id"] == 99
 
 
-def test_schedule_entry_with_missing_command_is_ignored(tmp_path: Path):
+def test_schedule_entry_with_missing_command_is_ignored(tmp_path: Path, monkeypatch):
+    import common.config
+    mock_logger = MagicMock()
+    monkeypatch.setattr(common.config, "log", mock_logger)
+
     config_path = tmp_path / "config.json"
     data = {
         "events": [
@@ -140,6 +146,8 @@ def test_schedule_entry_with_missing_command_is_ignored(tmp_path: Path):
     }
     write_config(config_path, data)
     config = load_config(config_path)
+
+    mock_logger.warning.assert_called_once()  # warn about skipped entry with missing command
     assert len(config.schedule) == 1
     assert config.schedule[0].command == CommandType.INCIDENT_REMOVE
 

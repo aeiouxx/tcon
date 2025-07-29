@@ -74,7 +74,7 @@ def _import_one(name: str,
 
 
 def _imports():
-    _import_one("common.logger", from_list=["EnsureLogger"])
+    _import_one("common.logger", from_list=["get_logger"])
     _import_one("common.models",
                 from_list=["CommandType",
                            "Command",
@@ -88,7 +88,7 @@ def _imports():
 
 
 if TYPE_CHECKING:
-    from common.logger import EnsureLogger
+    from common.logger import get_logger
     from common.models import (
         CommandType,
         Command,
@@ -174,7 +174,7 @@ _SERVER: ServerProcess | None
 def _load():
     _imports()  # check reimport on sim start
     global log, _SERVER
-    log = EnsureLogger("aimsun.entrypoint")
+    log = get_logger("aimsun.entrypoint")  # __name__ behaves weird
     _SERVER = ServerProcess()
 
 

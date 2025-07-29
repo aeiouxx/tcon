@@ -37,10 +37,10 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from common.models import CommandType
-from common.logger import get_log_manager, EnsureLogger
+from common.logger import get_log_manager, get_logger
 
 
-log = EnsureLogger(__name__)
+log = get_logger(__name__)
 
 
 @dataclass
@@ -89,10 +89,6 @@ class AppConfig:
     api_port:
         Optional override for the API port. If ``None`` the default
         ``ServerProcess`` port is used.
-    log_level:
-        Optional override for the default logging level.
-    log_modules:
-        Per component logging settings.
     schedule:
         Sequence of scheduled events that should be executed when the
         simulation runs. If empty, no events will be scheduled.
@@ -140,6 +136,7 @@ def load_config(path: pathlib.Path = pathlib.Path(__file__).resolve().parent.par
             log.debug("Processing: '%s'", json.dumps(item, indent=2))
             cmd_type_str = item.get("command")
             if not cmd_type_str:
+                log.warning("Skipping entry with missing 'command': %s", item)
                 continue
             cmd_type = CommandType(cmd_type_str)
             time_val = float(item.get("time", 0.0))
