@@ -92,10 +92,12 @@ class AppConfig:
                 logfile=settings.get("logfile"),
                 ansi=settings.get("ansi"))
 
+        log.debug("Reading schedule...")
         raw_schedule = data.get("schedule", [])
         try:
             parsed = ScheduleRoot.model_validate(raw_schedule)
             schedule = Schedule(parsed.root)
+            log.info(f"Schedule parsed without errors, size: {len(schedule)}")
         except ValidationError as exc:
             for err in exc.errors():
                 loc = ".".join(str(p) for p in err["loc"])

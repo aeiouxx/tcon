@@ -3,10 +3,9 @@ import pytest
 from pathlib import Path
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-from unittest.mock import MagicMock
-
-from common.config import load_config, ScheduledCommand, AppConfig
-from common.models import CommandType
+from common.schedule import Schedule
+from common.config import load_config, AppConfig
+from common.models import CommandType, ScheduledCommand
 from common.logger import get_log_manager
 from pydantic import ValidationError
 
@@ -158,4 +157,69 @@ def test_ini_time_before_schedule_raises(tmp_path: Path):
 
     assert "payload.ini_time" in str(exc.value)
 
+
+def test_implicit_time_is_minus_one(tmp_path: Path):
+    cfg_path = tmp_path / "config.json"
+    _write_config(
+        cfg_path,
+        {
+            "schedule": [
+                {
+                    "command": "incident_create",
+                    # "time": -1, <-- should be implicit if omitted to schedule immediately
+                    "payload": {
+                        "section_id": 492,
+                        "lane": 1,
+                        "position": 0.0,
+                        "length": 5.0,
+                        "ini_time": 0,
+                        "duration": 60
+                    }
+                }
+            ]
+        },
+    )
+
+    cfg = load_config(cfg_path)
+    sch: Schedule = cfg.schedule
+
+    assert len(sch) == 1
+    assert sch.peek_time() == ScheduledCommand.IMMEDIATE
+
+    due = list(sch.ready(0))
+    assert len(due) == 1
+    assert due[0].command is CommandType.INCIDENT_CREATE
+
+
+def test_schedule_sorts_by_time(tmp_path: Path):
+    cfg_path = tmp_path / "config.json"
+    _write_config(
+        cfg_path,
+        {
+            "schedule": [
+                {   # fires third
+                    "command": "incidents_reset",
+                    "time": 300,
+                    "payload": {}
+                },
+                {   # fires FIRST
+                    "command": "incident_remove",
+                    "time": 50,
+                    "payload": {"section_id": 1, "lane": 1, "position": 0.0}
+                },
+                {   # fires second
+                    "command": "measure_remove",
+                    "time": 150,
+                    "payload": {"id_action": 42}
+                }
+            ]
+        },
+    )
+
+    cfg = load_config(cfg_path)
+    sch: Schedule = cfg.schedule
+
+    set_all_ready_time = 1e9
+    times = [sc.time for sc in sch.ready(set_all_ready_time)]
+    assert times == sorted(times) == [50, 150, 300]
 # < SCHEDULING TESTS -----------------------------------------------------------

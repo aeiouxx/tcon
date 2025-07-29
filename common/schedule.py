@@ -3,7 +3,6 @@ from __future__ import annotations
 import heapq
 from typing import List, Iterable, Iterator
 from itertools import count
-
 from common.models import ScheduledCommand
 
 
@@ -25,7 +24,7 @@ class Schedule:
                        (sc.time, next(self._order), sc))
 
     def peek_time(self) -> float:
-        return self._heap[0][0] if self._heap else None
+        return self._heap[0][0] if self._heap else float('inf')
 
     def ready(self, up_to: float) -> Iterator[ScheduledCommand]:
         """ Yield (and pop) every command with time <= `up_to`"""

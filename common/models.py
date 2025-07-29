@@ -1,7 +1,7 @@
 from __future__ import annotations
 from enum import Enum
 
-from typing import (Annotated, Literal, Union)
+from typing import (Annotated, Literal, Union, Final, ClassVar)
 
 from pydantic import (
     RootModel,
@@ -196,8 +196,11 @@ class ScheduledCommand(BaseModel):
         Arbitrary payload dictionary. The structure depends on the
         command type. It is passed to the handler unchanged.
     """
+    # Means execute command as soon as you encounter it
+    IMMEDIATE: ClassVar[float] = -1
+
     command: CommandType
-    time: float = Field(default=-1,
+    time: float = Field(default=IMMEDIATE,
                         description="Sim-time in seconds from midnight,"
                         "omit or set to -1 for measures that"
                         "shouldn't be automatically terminated")
@@ -223,8 +226,6 @@ class ScheduledCommand(BaseModel):
                 "schedule.time ({scheduled_time})",
                 {"ini_time": ini_time, "scheduled_time": self.time})
         return self
-
-# simple v
 
 
 class ScheduleRoot(RootModel[list[ScheduledCommand]]):
