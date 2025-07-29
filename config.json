@@ -1,0 +1,33 @@
+{
+  "api": {
+    "host": "127.0.0.1",
+    "port": "8000"
+  },
+  "log": {
+    "level": "INFO",
+    "ansi": false,
+    "modules": {
+      "aimsun.entrypoint": {
+        "level": "INFO",
+        "ansi": false,
+        "logfile": null
+      },
+      "server.ipc": {
+        "level": "INFO",
+        "ansi": false,
+        "logfile": null
+      },
+      "server.api": {
+        "level": "INFO",
+        "ansi": true,
+        "logfile": null
+      },
+      "common.config": {
+        "level": "INFO",
+        "ansi": false,
+        "logfile": null
+      }
+    }
+  },
+  "events": []
+}

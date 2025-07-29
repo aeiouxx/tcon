@@ -7,8 +7,8 @@ import shutil
 
 
 from common.logger import get_logger
-log = get_logger(__file__)
 
+log = get_logger(__name__)
 # ServerProcess > --------------------------------------------------------------
 
 

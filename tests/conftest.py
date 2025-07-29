@@ -7,6 +7,8 @@ import signal
 import time
 import server.api
 from pathlib import Path
+from unittest.mock import MagicMock
+from common.logger import get_log_manager
 
 
 @pytest.fixture(autouse=True)
@@ -18,10 +20,17 @@ def fake_aapi(monkeypatch):
 
 
 @pytest.fixture
-# type: ignore[override] – we shadow the built‑in on purpose
 def tmp_path() -> Path:
     path = Path(tempfile.mkdtemp(prefix="tcon_tests_"))
     try:
         yield path
     finally:
         shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.fixture
+def mock_logger(monkeypatch):
+    """Optional fixture to mock all loggers for the current test only."""
+    mock = MagicMock()
+    monkeypatch.setattr(get_log_manager(), "get_logger", lambda name: mock)
+    return mock

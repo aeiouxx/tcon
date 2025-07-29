@@ -13,7 +13,7 @@ from common.logger import get_logger
 from http import HTTPStatus
 
 
-log = get_logger(__file__, level="DEBUG", disable_ansi=False)
+log = get_logger(__name__)
 
 
 def build_app(queue: mp.Queue):
