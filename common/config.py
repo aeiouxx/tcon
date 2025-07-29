@@ -70,7 +70,7 @@ class AppConfig:
     DEFAULT_HOST: ClassVar[Final[str]] = "127.0.0.1"
     DEFAULT_PORT: ClassVar[Final[int]] = 6969
     api_host: str = DEFAULT_HOST
-    api_port: str = DEFAULT_PORT
+    api_port: int = DEFAULT_PORT
     schedule: Schedule = field(default_factory=Schedule)
 
     @classmethod
@@ -94,8 +94,8 @@ class AppConfig:
 
         raw_schedule = data.get("schedule", [])
         try:
-            parsed = ScheduleRoot.model_validate({"__root__": raw_schedule})
-            schedule = Schedule(parsed.__root__)
+            parsed = ScheduleRoot.model_validate(raw_schedule)
+            schedule = Schedule(parsed.root)
         except ValidationError as exc:
             for err in exc.errors():
                 loc = ".".join(str(p) for p in err["loc"])

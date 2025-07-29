@@ -78,13 +78,13 @@ def _imports():
     _import_one("common.models",
                 from_list=["CommandType",
                            "Command",
+                           "ScheduledCommand",
                            "IncidentCreateDto",
                            "IncidentRemoveDto",
                            "IncidentsClearSectionDto",
                            "get_payload_cls"])
     _import_one("common.config",
                 from_list=["AppConfig",
-                           "ScheduledCommand",
                            "load_config"])
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
@@ -95,11 +95,12 @@ if TYPE_CHECKING:
     from common.models import (
         CommandType,
         Command,
+        ScheduledCommand,
         IncidentCreateDto,
         IncidentRemoveDto,
         IncidentsClearSectionDto,
         get_payload_cls)
-    from common.config import AppConfig, ScheduledCommand, load_config
+    from common.config import AppConfig, load_config
     from common.result import Result
     from server.ipc import ServerProcess
 else:
@@ -187,11 +188,8 @@ def _load():
     later use when scheduling events.
     """
     _imports()
-    global log, _SERVER, _CONFIG, _SCHEDULE
-    # Right now we reload the config every time _load() is called
-    # we could calculate the config hash + mtime, cache the config and only reload if either
-    # one changes, this would be useful mostly for larger configs with large schedules though,
-    # because revalidating each event might end up being somewhat costly
+    global log, _SERVER, _CONFIG
+    # hash + mtime on config -> cache it?
     _CONFIG = load_config()
     log = get_logger("aimsun.entrypoint")
     _SERVER = ServerProcess(host=_CONFIG.api_host,

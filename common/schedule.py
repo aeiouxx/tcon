@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import heapq
-from itertools import count
 from typing import List, Iterable, Iterator
+from itertools import count
+
 from common.models import ScheduledCommand
 
 
@@ -12,7 +15,7 @@ class Schedule:
 
     def __init__(self,
                  items=()):
-        self._heap = List[tuple[float, int, ScheduledCommand]] = []
+        self._heap: List[tuple[float, int, ScheduledCommand]] = []
         self._order = count()
         for sc in items:
             self.push(sc)

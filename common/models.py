@@ -1,10 +1,22 @@
 from __future__ import annotations
 from enum import Enum
-from typing import NamedTuple, Annotated, Literal, Union
-from pydantic import BaseModel, Field, ValidationError, ConfigDict, field_validator, model_validator, PydanticCustomError
+
+from typing import (Annotated, Literal, Union)
+
+from pydantic import (
+    RootModel,
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator)
+
+from pydantic_core import PydanticCustomError
 
 # INCIDENTS: https://docs.aimsun.com/next/23.0.2/UsersManual/ApiIncidents.html
 # MEASURES:  https://docs.aimsun.com/next/23.0.2/UsersManual/ApiManagementActions.html
+
+# FIXME: Apparently theres a simpler dispatch in the stdlib, rework our
+# registration mechanisms?
 
 
 # > Command ----------------------------------------------------------
@@ -94,7 +106,7 @@ class IncidentRemoveDto(BaseModel):
 class IncidentsClearSectionDto(BaseModel):
     section_id: int = Field(
         ..., description="Identifier of the section to clear of incidents")
-# < Incidents ----------------------------------------------------------
+# < Incidents ------------------------------------------------------------------
 
 
 # > Measure --------------------------------------------------------------------
@@ -151,12 +163,10 @@ MeasurePayload = Annotated[
 
 
 @register_command(CommandType.MEASURE_CREATE)
-class MeasureCreateDto(MeasurePayload):
-    __root__: MeasurePayload  # define as a thin wrapper around the actual thing
-
+class MeasureCreateDto(RootModel[MeasurePayload]):
     @property
     def measure(self) -> MeasurePayload:
-        return self.__root__
+        return self.root
 
 
 @register_command(CommandType.MEASURE_REMOVE)
@@ -197,9 +207,10 @@ class ScheduledCommand(BaseModel):
     @field_validator("payload")
     @classmethod
     def _cast_payload(cls, v, info):
-        if isinstance(v, BaseModel):
+        cmd = info.data.get("command")
+        if cmd is None or isinstance(v, BaseModel):
             return v
-        model_cls = get_payload_cls(info.data["command"])
+        model_cls = get_payload_cls(cmd)
         return model_cls.model_validate(v) if model_cls else v
 
     @model_validator(mode="after")
@@ -216,6 +227,6 @@ class ScheduledCommand(BaseModel):
 # simple v
 
 
-class ScheduleRoot(BaseModel):
-    __root__: list[ScheduledCommand]
+class ScheduleRoot(RootModel[list[ScheduledCommand]]):
+    pass
 # < Scheduled command ----------------------------------------------------------
