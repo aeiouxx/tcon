@@ -34,51 +34,21 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Final, ClassVar
+from pydantic import ValidationError
 
-from common.models import CommandType
+from common.models import CommandType, ScheduledCommand, ScheduleRoot
 from common.logger import get_log_manager, get_logger
+from common.schedule import Schedule
 
 
 log = get_logger(__name__)
 
 
 @dataclass
-class ScheduledCommand:
-    """Represents a scheduled command loaded from configuration.
-
-    Attributes
-    ----------
-    command:
-        The command type corresponding to ``CommandType``. Must match one
-        of the known command identifiers such as ``incident_create`` or
-        ``measure_create``.
-    time:
-        Simulation time (seconds from midnight) at which to execute the
-        command. Events are executed when the current simulation time is
-        greater than or equal to this value.
-    payload:
-        Arbitrary payload dictionary. The structure depends on the
-        command type. It is passed to the handler unchanged.
-    """
-
-    # TODO: just use Command directly?
-    command: CommandType
-    time: float
-    payload: Dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self):
-        # TODO: retrieve command model from registry, run validators
-        # and check against ini_time if exists?
-        ini_time = self.payload.get("ini_time")
-        if ini_time is not None and ini_time <= self.time:
-            raise ValueError(
-                f"Scheduled command '{self.command.value}' is set to execute at {self.time}, "
-                f"but it's payload ini_time is '{ini_time}', ini_time must be greater than schedule time.")
-
-
-@dataclass
 class AppConfig:
+    # For now just loads the whole config into memory, in
+    # the future we can improve by adding stream / iterator support
     """Top-level configuration loaded from file
 
     Attributes
@@ -90,12 +60,53 @@ class AppConfig:
         Optional override for the API port. If ``None`` the default
         ``ServerProcess`` port is used.
     schedule:
-        Sequence of scheduled events that should be executed when the
-        simulation runs. If empty, no events will be scheduled.
+        Sequence of scheduled command that should be executed when the
+        simulation runs either at a particular time or immediately.
+        If empty, no events will be scheduled.
+        WARNING: Schedule execution depends on simulation step, meaning
+        events will get executed when simulation time >= ScheduledCommand.time
+        as we could advance past the specific time because of our step value `acicle`
     """
-    api_host: Optional[str] = None
-    api_port: Optional[str] = None
-    schedule: List[ScheduledCommand] = field(default_factory=list)
+    DEFAULT_HOST: ClassVar[Final[str]] = "127.0.0.1"
+    DEFAULT_PORT: ClassVar[Final[int]] = 6969
+    api_host: str = DEFAULT_HOST
+    api_port: int = DEFAULT_PORT
+    schedule: Schedule = field(default_factory=Schedule)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AppConfig:
+        if not data:
+            return AppConfig()
+        api_cfg = data.get("api", {})
+        api_host = api_cfg.get("host") or AppConfig.DEFAULT_HOST
+        api_port = api_cfg.get("port") or AppConfig.DEFAULT_PORT
+
+        log_manager = get_log_manager()
+        log_cfg = data.get("log", {})
+        log_manager.default_level = log_manager.parse_level(log_cfg.get("level", "INFO"))
+
+        for mod_name, settings in log_cfg.get("modules", {}).items():
+            log_manager.configure_component(
+                name=mod_name,
+                level=settings.get("level"),
+                logfile=settings.get("logfile"),
+                ansi=settings.get("ansi"))
+
+        log.debug("Reading schedule...")
+        raw_schedule = data.get("schedule", [])
+        try:
+            parsed = ScheduleRoot.model_validate(raw_schedule)
+            schedule = Schedule(parsed.root)
+            log.info(f"Schedule parsed without errors, size: {len(schedule)}")
+        except ValidationError as exc:
+            for err in exc.errors():
+                loc = ".".join(str(p) for p in err["loc"])
+                log.error("Config error at %s → %s (input=%r)",
+                          loc, err["msg"], err.get("input"))
+            raise
+        return AppConfig(api_host=api_host,
+                         api_port=api_port,
+                         schedule=schedule)
 
 
 def _load_json(path: pathlib.Path) -> Dict[str, Any]:
@@ -111,44 +122,4 @@ def _load_json(path: pathlib.Path) -> Dict[str, Any]:
 def load_config(path: pathlib.Path = pathlib.Path(__file__).resolve().parent.parent / "config.json") -> AppConfig:
     log.info("Reading config from path: '%s'", path)
     data = _load_json(path)
-    if not data:
-        return AppConfig()
-    api_host = data.get("api", {}).get("host")
-    api_port = data.get("api", {}).get("port")
-
-    log_manager = get_log_manager()
-    log_cfg = data.get("log", {})
-    default_level = log_manager.parse_level(log_cfg.get("level", "INFO"))
-    log_manager.default_level = default_level
-
-    module_config = log_cfg.get("modules", {})
-    for mod_name, settings in module_config.items():
-        log_manager.configure_component(
-            name=mod_name,
-            level=settings.get("level"),
-            logfile=settings.get("logfile"),
-            ansi=settings.get("ansi"))
-
-    events: List[ScheduledCommand] = []
-    events_data = data.get("events", [])
-    for item in events_data:
-        try:
-            log.debug("Processing: '%s'", json.dumps(item, indent=2))
-            cmd_type_str = item.get("command")
-            if not cmd_type_str:
-                log.warning("Skipping entry with missing 'command': %s", item)
-                continue
-            cmd_type = CommandType(cmd_type_str)
-            time_val = float(item.get("time", 0.0))
-            payload = item.get("payload", {})
-            events.append(ScheduledCommand(command=cmd_type, time=time_val, payload=payload))
-        except ValueError as exc:
-            log.exception("Error parsing entry: %s", exc)
-            raise  # let's warn the user i guess
-        except Exception as exc:
-            log.exception("Error parsing entry: %s", exc)
-            continue
-
-    return AppConfig(api_host=api_host,
-                     api_port=api_port,
-                     schedule=events)
+    return AppConfig.from_dict(data)

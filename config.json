@@ -29,5 +29,17 @@
       }
     }
   },
-  "events": []
+  "schedule": [
+    "command": "incident_create",
+    "payload": {
+      "section_id": 492,
+      "lane": 1,
+      "position": 10.0,
+      "length": 25.0,
+      "ini_time": 60.0,
+      "duration": 300,
+      "apply_speed_reduction": true,
+      "max_speed_SR": 20
+    }
+  ]
 }

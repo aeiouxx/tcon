@@ -78,13 +78,17 @@ def _imports():
     _import_one("common.models",
                 from_list=["CommandType",
                            "Command",
+                           "ScheduledCommand",
                            "IncidentCreateDto",
                            "IncidentRemoveDto",
                            "IncidentsClearSectionDto",
                            "get_payload_cls"])
-    _import_one("common.config", from_list=["AppConfig", "ScheduledCommand"])
+    _import_one("common.config",
+                from_list=["AppConfig",
+                           "load_config"])
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
+    _import_one("common.schedule", from_list=["Schedule"])
 
 
 if TYPE_CHECKING:
@@ -92,11 +96,13 @@ if TYPE_CHECKING:
     from common.models import (
         CommandType,
         Command,
+        ScheduledCommand,
         IncidentCreateDto,
         IncidentRemoveDto,
         IncidentsClearSectionDto,
         get_payload_cls)
-    from common.config import AppConfig, ScheduledCommand
+    from common.schedule import Schedule
+    from common.config import AppConfig, load_config
     from common.result import Result
     from server.ipc import ServerProcess
 else:
@@ -104,6 +110,10 @@ else:
 
     # < Module imports -------------------------------------------------------------
     # > Command handlers -----------------------------------------------------------
+_CONFIG: AppConfig | None
+_SCHEDULE: Schedule | None
+
+
 if "_HANDLERS" not in globals():
     _HANDLERS: dict[CommandType, Callable[..., Result]] = {}
 
@@ -164,6 +174,31 @@ def _incidents_reset() -> Result[int]:
                               msg_fail="Failed clearing incidents")
 
 
+def _execute(cmd_type: CommandType, payload) -> None:
+    handler = _HANDLERS.get(cmd_type)
+    if handler is None:
+        log.warning(
+            "No handler registered for command type: %s", cmd_type)
+        return
+    dto_cls = get_payload_cls(cmd_type)
+    payload_obj = (
+        dto_cls.model_validate(payload)
+        if dto_cls and not isinstance(payload, BaseModel)
+        else payload)
+    try:
+        res = handler(payload_obj)
+        if isinstance(res, Result):
+            if res.is_ok():
+                log.info("%s", res.message)
+            else:
+                log.warning("%s:%s (code=%s)",
+                            res.message,
+                            res.status.name,
+                            res.raw_code)
+    except Exception:
+        log.exception("Unhandled error in handler for %s", cmd_type)
+
+
 # < Command handlers -----------------------------------------------------------
 # > AAPI CALLBACKS -------------------------------------------------------------
 log: Logger | None
@@ -172,10 +207,23 @@ _SERVER: ServerProcess | None
 
 
 def _load():
-    _imports()  # check reimport on sim start
-    global log, _SERVER
-    log = get_logger("aimsun.entrypoint")  # __name__ behaves weird
-    _SERVER = ServerProcess()
+    """Initialize the entrypoint on simulation load.
+
+    This function reloads dependent modules to support hot reloading,
+    loads the application configuration, initialises the logger and
+    constructs the HTTP API server. Configuration may override the
+    default host, port and log level. The global ``_CONFIG`` is set for
+    later use when scheduling events.
+    """
+    _imports()
+    global log, _SERVER, _CONFIG, _SCHEDULE
+
+    # hash + mtime on config -> cache it?
+    _CONFIG = load_config()
+    log = get_logger("aimsun.entrypoint")
+    _SERVER = ServerProcess(host=_CONFIG.api_host, port=_CONFIG.api_port)
+
+    _SCHEDULE = _CONFIG.schedule
 
 
 def AAPILoad() -> int:
@@ -190,34 +238,26 @@ def AAPIInit() -> int:
 
 
 def AAPISimulationReady() -> int:
-    # TODO: Queue up commands that are contained in config file here
+    start_time = 0.0
+    if not _SCHEDULE:
+        return 0
+    for sc in _SCHEDULE.ready(start_time):
+        _execute(sc.command, sc.payload)
     return 0
 
 
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
+    if _SCHEDULE:
+        for sc in _SCHEDULE.ready(timeSta):
+            log.debug("Scheduled %s fired at %.2f s", sc.command, timeSta)
+            _execute(sc.command, sc.payload)
     for raw_cmd in _SERVER.try_recv_all():
         try:
             cmd: Command = Command.parse_obj(raw_cmd)
-            log.debug("Received '%s' command, body:\n%s",
-                      cmd.type.name,
+            log.debug("IPC‑recv %s:\n%s",
+                      cmd.type,
                       json.dumps(cmd.payload, indent=2))
-            handler = _HANDLERS.get(cmd.type)
-            if handler is None:
-                log.warning(
-                    "No handler registered for command type: %s", cmd.type)
-                continue
-            dto_cls: BaseModel = get_payload_cls(cmd.type)
-            payload = dto_cls.parse_obj(
-                cmd.payload) if dto_cls is not None else cmd.payload
-            result = handler(payload)
-            if isinstance(result, Result):
-                if result.is_ok():
-                    log.info("%s", result.message)
-                else:
-                    log.warning("%s: %s (code=%d)",
-                                result.message,
-                                result.status.name,
-                                result.raw_code)
+            _execute(cmd.type, cmd.payload)
         except Exception as e:
             log.exception("Failed when processing message: %s", e)
     return 0
