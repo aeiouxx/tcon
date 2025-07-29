@@ -22,8 +22,8 @@ def test_empty_config_file(tmp_path: Path):
     write_config(config_path, {})
     config = load_config(config_path)
     assert isinstance(config, AppConfig)
-    assert config.api_host is None
-    assert config.api_port is None
+    assert config.api_host == AppConfig.DEFAULT_HOST
+    assert config.api_port == AppConfig.DEFAULT_PORT
     assert config.schedule == []
 
 
@@ -107,7 +107,7 @@ def test_logger_logfile_relative_to_project_root(tmp_path: Path, monkeypatch):
 def test_valid_schedule_parsing(tmp_path: Path):
     config_path = tmp_path / "config.json"
     data = {
-        "api": {"host": "127.0.0.1", "port": "9999"},
+        "api": {"host": "127.1.1.1", "port": "9999"},
         "log": {"level": "INFO"},
         "schedule": [
             {
@@ -120,7 +120,7 @@ def test_valid_schedule_parsing(tmp_path: Path):
     write_config(config_path, data)
     config = load_config(config_path)
 
-    assert config.api_host == "127.0.0.1"
+    assert config.api_host == "127.1.1.1"
     assert config.api_port == "9999"
     assert len(config.schedule) == 1
 

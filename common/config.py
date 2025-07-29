@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Final, ClassVar
 
 from common.models import CommandType
 from common.logger import get_log_manager, get_logger
@@ -79,6 +79,9 @@ class ScheduledCommand:
 
 @dataclass
 class AppConfig:
+    # For now just loads the whole config into memory, in
+    # the future we can improve by adding stream / iterator support
+    #
     """Top-level configuration loaded from file
 
     Attributes
@@ -97,9 +100,57 @@ class AppConfig:
         events will get executed when simulation time >= ScheduledCommand.time
         as we could advance past the specific time because of our step value `acicle`
     """
-    api_host: Optional[str] = None
-    api_port: Optional[str] = None
+    DEFAULT_HOST: ClassVar[Final[str]] = "127.0.0.1"
+    DEFAULT_PORT: ClassVar[Final[int]] = 6969
+    api_host: str = DEFAULT_HOST
+    api_port: str = DEFAULT_PORT
     schedule: List[ScheduledCommand] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AppConfig:
+        if not data:
+            return AppConfig()
+        api_cfg = data.get("api", {})
+        api_host = api_cfg.get("host") or AppConfig.DEFAULT_HOST
+        api_port = api_cfg.get("port") or AppConfig.DEFAULT_PORT
+
+        log_manager = get_log_manager()
+        log_cfg = data.get("log", {})
+        log_manager.default_level = log_manager.parse_level(log_cfg.get("level", "INFO"))
+
+        for mod_name, settings in log_cfg.get("modules", {}).items():
+            log_manager.configure_component(
+                name=mod_name,
+                level=settings.get("level"),
+                logfile=settings.get("logfile"),
+                ansi=settings.get("ansi"))
+
+        # TODO: RESOLVE AND SORT SCHEDULE DYNAMICALLY HERE,
+        # FOR MEASURES WITH DURATION, WE CAN EVEN
+        # PRECISELY GENERATE ANTI-COMMANDS.
+        schedule: List[ScheduledCommand] = []
+        schedule_data = data.get("schedule", [])
+        for item in schedule_data:
+            try:
+                log.debug("Processing: '%s'", json.dumps(item, indent=2))
+                cmd_type_str = item.get("command")
+                if not cmd_type_str:
+                    log.warning("Skipping entry with missing 'command': %s", item)
+                    continue
+                cmd_type = CommandType(cmd_type_str)
+                time_val = float(item.get("time", 0.0))
+                payload = item.get("payload", {})
+                schedule.append(ScheduledCommand(command=cmd_type, time=time_val, payload=payload))
+            except ValueError as exc:
+                log.exception("Error parsing entry: %s", exc)
+                raise  # let's warn the user i guess
+            except Exception as exc:
+                log.exception("Error parsing entry: %s", exc)
+                continue
+
+        return AppConfig(api_host=api_host,
+                         api_port=api_port,
+                         schedule=schedule)
 
 
 def _load_json(path: pathlib.Path) -> Dict[str, Any]:
@@ -115,44 +166,4 @@ def _load_json(path: pathlib.Path) -> Dict[str, Any]:
 def load_config(path: pathlib.Path = pathlib.Path(__file__).resolve().parent.parent / "config.json") -> AppConfig:
     log.info("Reading config from path: '%s'", path)
     data = _load_json(path)
-    if not data:
-        return AppConfig()
-    api_host = data.get("api", {}).get("host")
-    api_port = data.get("api", {}).get("port")
-
-    log_manager = get_log_manager()
-    log_cfg = data.get("log", {})
-    default_level = log_manager.parse_level(log_cfg.get("level", "INFO"))
-    log_manager.default_level = default_level
-
-    module_config = log_cfg.get("modules", {})
-    for mod_name, settings in module_config.items():
-        log_manager.configure_component(
-            name=mod_name,
-            level=settings.get("level"),
-            logfile=settings.get("logfile"),
-            ansi=settings.get("ansi"))
-
-    schedule: List[ScheduledCommand] = []
-    schedule_data = data.get("schedule", [])
-    for item in schedule_data:
-        try:
-            log.debug("Processing: '%s'", json.dumps(item, indent=2))
-            cmd_type_str = item.get("command")
-            if not cmd_type_str:
-                log.warning("Skipping entry with missing 'command': %s", item)
-                continue
-            cmd_type = CommandType(cmd_type_str)
-            time_val = float(item.get("time", 0.0))
-            payload = item.get("payload", {})
-            schedule.append(ScheduledCommand(command=cmd_type, time=time_val, payload=payload))
-        except ValueError as exc:
-            log.exception("Error parsing entry: %s", exc)
-            raise  # let's warn the user i guess
-        except Exception as exc:
-            log.exception("Error parsing entry: %s", exc)
-            continue
-
-    return AppConfig(api_host=api_host,
-                     api_port=api_port,
-                     schedule=schedule)
+    return AppConfig.from_dict(data)
