@@ -34,54 +34,21 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Final, ClassVar
+from typing import Any, Dict, List, Final, ClassVar
+from pydantic import ValidationError
 
-from common.models import CommandType
+from common.models import CommandType, ScheduledCommand, ScheduleRoot
 from common.logger import get_log_manager, get_logger
+from common.schedule import Schedule
 
 
 log = get_logger(__name__)
 
 
 @dataclass
-class ScheduledCommand:
-    """Represents a scheduled command loaded from configuration.
-
-    Attributes
-    ----------
-    command:
-        The command type corresponding to ``CommandType``. Must match one
-        of the known command identifiers such as ``incident_create`` or
-        ``measure_create``.
-    time:
-        Simulation time (seconds from midnight) at which to execute the
-        command. Events are executed when the current simulation time is
-        greater than or equal to this value.
-    payload:
-        Arbitrary payload dictionary. The structure depends on the
-        command type. It is passed to the handler unchanged.
-    """
-
-    # TODO: just use Command directly?
-    command: CommandType
-    time: float
-    payload: Dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self):
-        # TODO: retrieve command model from registry, run validators
-        # and check against ini_time if exists?
-        ini_time = self.payload.get("ini_time")
-        if ini_time is not None and ini_time <= self.time:
-            raise ValueError(
-                f"Scheduled command '{self.command.value}' is set to execute at {self.time}, "
-                f"but it's payload ini_time is '{ini_time}', ini_time must be greater than schedule time.")
-
-
-@dataclass
 class AppConfig:
     # For now just loads the whole config into memory, in
     # the future we can improve by adding stream / iterator support
-    #
     """Top-level configuration loaded from file
 
     Attributes
@@ -104,7 +71,7 @@ class AppConfig:
     DEFAULT_PORT: ClassVar[Final[int]] = 6969
     api_host: str = DEFAULT_HOST
     api_port: str = DEFAULT_PORT
-    schedule: List[ScheduledCommand] = field(default_factory=list)
+    schedule: Schedule = field(default_factory=Schedule)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
@@ -125,29 +92,16 @@ class AppConfig:
                 logfile=settings.get("logfile"),
                 ansi=settings.get("ansi"))
 
-        # TODO: RESOLVE AND SORT SCHEDULE DYNAMICALLY HERE,
-        # FOR MEASURES WITH DURATION, WE CAN EVEN
-        # PRECISELY GENERATE ANTI-COMMANDS.
-        schedule: List[ScheduledCommand] = []
-        schedule_data = data.get("schedule", [])
-        for item in schedule_data:
-            try:
-                log.debug("Processing: '%s'", json.dumps(item, indent=2))
-                cmd_type_str = item.get("command")
-                if not cmd_type_str:
-                    log.warning("Skipping entry with missing 'command': %s", item)
-                    continue
-                cmd_type = CommandType(cmd_type_str)
-                time_val = float(item.get("time", 0.0))
-                payload = item.get("payload", {})
-                schedule.append(ScheduledCommand(command=cmd_type, time=time_val, payload=payload))
-            except ValueError as exc:
-                log.exception("Error parsing entry: %s", exc)
-                raise  # let's warn the user i guess
-            except Exception as exc:
-                log.exception("Error parsing entry: %s", exc)
-                continue
-
+        raw_schedule = data.get("schedule", [])
+        try:
+            parsed = ScheduleRoot.model_validate({"__root__": raw_schedule})
+            schedule = Schedule(parsed.__root__)
+        except ValidationError as exc:
+            for err in exc.errors():
+                loc = ".".join(str(p) for p in err["loc"])
+                log.error("Config error at %s → %s (input=%r)",
+                          loc, err["msg"], err.get("input"))
+            raise
         return AppConfig(api_host=api_host,
                          api_port=api_port,
                          schedule=schedule)

@@ -82,7 +82,10 @@ def _imports():
                            "IncidentRemoveDto",
                            "IncidentsClearSectionDto",
                            "get_payload_cls"])
-    _import_one("common.config", from_list=["AppConfig", "ScheduledCommand"])
+    _import_one("common.config",
+                from_list=["AppConfig",
+                           "ScheduledCommand",
+                           "load_config"])
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
 
@@ -96,7 +99,7 @@ if TYPE_CHECKING:
         IncidentRemoveDto,
         IncidentsClearSectionDto,
         get_payload_cls)
-    from common.config import AppConfig, ScheduledCommand
+    from common.config import AppConfig, ScheduledCommand, load_config
     from common.result import Result
     from server.ipc import ServerProcess
 else:
@@ -104,6 +107,9 @@ else:
 
     # < Module imports -------------------------------------------------------------
     # > Command handlers -----------------------------------------------------------
+_CONFIG: AppConfig
+
+
 if "_HANDLERS" not in globals():
     _HANDLERS: dict[CommandType, Callable[..., Result]] = {}
 
@@ -172,10 +178,24 @@ _SERVER: ServerProcess | None
 
 
 def _load():
-    _imports()  # check reimport on sim start
-    global log, _SERVER
-    log = get_logger("aimsun.entrypoint")  # __name__ behaves weird
-    _SERVER = ServerProcess()
+    """Initialize the entrypoint on simulation load.
+
+    This function reloads dependent modules to support hot reloading,
+    loads the application configuration, initialises the logger and
+    constructs the HTTP API server. Configuration may override the
+    default host, port and log level. The global ``_CONFIG`` is set for
+    later use when scheduling events.
+    """
+    _imports()
+    global log, _SERVER, _CONFIG, _SCHEDULE
+    # Right now we reload the config every time _load() is called
+    # we could calculate the config hash + mtime, cache the config and only reload if either
+    # one changes, this would be useful mostly for larger configs with large schedules though,
+    # because revalidating each event might end up being somewhat costly
+    _CONFIG = load_config()
+    log = get_logger("aimsun.entrypoint")
+    _SERVER = ServerProcess(host=_CONFIG.api_host,
+                            port=_CONFIG.api_port)
 
 
 def AAPILoad() -> int:
