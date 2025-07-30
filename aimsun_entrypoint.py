@@ -13,6 +13,10 @@ import importlib
 import sys
 import pathlib
 import json
+import ctypes
+
+from itertools import count
+from functools import singledispatch
 from logging import Logger
 from pydantic import BaseModel
 
@@ -37,12 +41,11 @@ _MOD_MTIMES: dict[str, float] = globals()["_MOD_MTIMES"]
 
 
 def _import_one(name: str,
-                alias: str = None,
                 from_list: list[str] = None,
                 *,
                 base_path: str | pathlib.Path = pathlib.Path(__file__).parent) -> None:
-    # WARNING: HOT RELOADING MODULES WITH GLOBAL SCRIPTS IS NOT A GOOD IDEA, AS WE MIGHT RERUN
-    # TODO: implement aliasing
+    # WARNING: hot reloading modules with global scripts is not a good idea, unless
+    # the scripts are idempotent!
     """
     Allows modifying imported code at runtime without having to relaunch Aimsun,
     just rerun the simulation to reload the imports.
@@ -82,6 +85,9 @@ def _imports():
                            "IncidentCreateDto",
                            "IncidentRemoveDto",
                            "IncidentsClearSectionDto",
+                           "MeasureCreateDto",
+                           "MeasureSpeedSection"
+                           "MeasureRemoveDto",
                            "get_payload_cls"])
     _import_one("common.config",
                 from_list=["AppConfig",
@@ -100,6 +106,9 @@ if TYPE_CHECKING:
         IncidentCreateDto,
         IncidentRemoveDto,
         IncidentsClearSectionDto,
+        MeasureCreateDto,
+        MeasureSpeedSection,
+        MeasureRemoveDto,
         get_payload_cls)
     from common.schedule import Schedule
     from common.config import AppConfig, load_config
@@ -116,6 +125,9 @@ _SCHEDULE: Schedule | None
 
 if "_HANDLERS" not in globals():
     _HANDLERS: dict[CommandType, Callable[..., Result]] = {}
+
+# FIXME: Just learned about @singledispatch from stdlib, could rewrite
+# our registration code?
 
 
 def register_handler(type: CommandType):
@@ -174,6 +186,59 @@ def _incidents_reset() -> Result[int]:
                               msg_fail="Failed clearing incidents")
 
 
+@register_handler(CommandType.MEASURE_CREATE)
+def _measure_create(payload: MeasureCreateDto) -> Result[int]:
+    m = payload.root
+    result = _apply_measure(m)
+    if (result.is_ok() and m.duration and m.duration > 0 and _SCHEDULE is not None):
+        action_id = result.unwrap()
+        ends_at = (m.ini_time or 0) + m.duration
+        _SCHEDULE.push(
+            ScheduledCommand(
+                command=CommandType.MEASURE_REMOVE,
+                time=ends_at,
+                payload=MeasureRemoveDto(id_action=action_id).model_dump()))
+        log.debug("Auto‑scheduled MEASURE_REMOVE id=%s at t=%.1f s", action_id, ends_at)
+
+    return result
+
+
+@register_handler(CommandType.MEASURE_REMOVE)
+def _measure_remove(measure: MeasureRemoveDto) -> Result[int]:
+    code = AKIActionRemoveById(measure.id_action)
+    return Result.from_aimsun(code,
+                              msg_ok=f"Removed measure {measure.id_action}",
+                              msg_fail=f"Failed to remove measure {measure.id_action}")
+
+
+# Wish I knew about this dispatch decorator earlier instead of writing my own registration spaghetti :(
+@singledispatch
+def _apply_measure(measure) -> Result[int]:
+    raise NotImplementedError(type(measure))
+
+
+@_apply_measure.register
+def _(measure: MeasureSpeedSection) -> Result[int]:
+    section_count = len(measure.section_ids)
+    section_id_arr = intArray(section_count)
+    for i, sid in enumerate(measure.section_ids):
+        section_id_arr = sid
+
+    action_id = next(_ID_GEN)
+    # WARNING: NO RETURN CODES HOW AM I SUPPOSED TO KNOW WE SUCCEEDED...
+    # maybe it throws if wrong or something
+    AKIActionAddSpeedActionByID(action_id,
+                                section_count,
+                                section_id_arr,
+                                measure.speed,
+                                measure.veh_type,
+                                measure.compliance,
+                                measure.consider_speed_acceptance)
+    return Result.from_aimsun(action_id,
+                              msg_ok=f"Speed {measure.speed} km/h on {measure.section_ids} (id={action_id})",
+                              msg_fail="Speed‑section action failed")
+
+
 def _execute(cmd_type: CommandType, payload) -> None:
     handler = _HANDLERS.get(cmd_type)
     if handler is None:
@@ -202,8 +267,9 @@ def _execute(cmd_type: CommandType, payload) -> None:
 # < Command handlers -----------------------------------------------------------
 # > AAPI CALLBACKS -------------------------------------------------------------
 log: Logger | None
-config: AppConfig
+_CONFIG: AppConfig
 _SERVER: ServerProcess | None
+_ID_GEN = None
 
 
 def _load():
@@ -216,14 +282,14 @@ def _load():
     later use when scheduling events.
     """
     _imports()
-    global log, _SERVER, _CONFIG, _SCHEDULE
+    global log, _SERVER, _CONFIG, _SCHEDULE, _ID_GEN
 
     # hash + mtime on config -> cache it?
     _CONFIG = load_config()
     log = get_logger("aimsun.entrypoint")
     _SERVER = ServerProcess(host=_CONFIG.api_host, port=_CONFIG.api_port)
-
     _SCHEDULE = _CONFIG.schedule
+    _ID_GEN = count(1)
 
 
 def AAPILoad() -> int:

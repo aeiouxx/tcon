@@ -25,9 +25,6 @@ class CommandType(str, Enum):
     INCIDENT_REMOVE = "incident_remove"
     INCIDENTS_CLEAR_SECTION = "incidents_clear_section"
     INCIDENTS_RESET = "incidents_reset"
-    # First let's test double indirection as measures
-    # will have custom scheduling in common as they can't be
-    # scheduled via the API
     MEASURE_CREATE = "measure_create"
     MEASURE_REMOVE = "measure_remove"
     MEASURES_CLEAR = "measures_clear"
@@ -138,7 +135,26 @@ class _MeasureBase(BaseModel):
 
 
 class MeasureSpeedSection(_MeasureBase):
+    """
+    Changes the speed limit in one or many sections.
+    Calls the AKIActionAddSpeedSectionById API function.
+    """
     type: Literal[MeasureType.SPEED_SECTION] = MeasureType.SPEED_SECTION
+    section_ids: list[int] = Field(...,
+                                   min_length=1,
+                                   description="List of section IDs to apply measure to")
+    speed: float = Field(...,
+                         gt=0,
+                         description="Target speed (km/h")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+    consider_speed_acceptance: bool = Field(default=True,
+                                            description="False -> override speed acceptance factor")
 
 
 class MeasureSpeedDetailed(_MeasureBase):
@@ -158,18 +174,24 @@ class MeasureForceTurn(_MeasureBase):
 
 
 MeasurePayload = Annotated[
-    Union[MeasureSpeedSection, MeasureSpeedDetailed, MeasureLaneClosure, MeasureLaneClosureDetailed, MeasureForceTurn],
+    Union[
+        MeasureSpeedSection,
+        MeasureSpeedDetailed,
+        MeasureLaneClosure,
+        MeasureLaneClosureDetailed,
+        MeasureForceTurn
+    ],
     Field(discriminator="type")]
 
 
-@register_command(CommandType.MEASURE_CREATE)
+@ register_command(CommandType.MEASURE_CREATE)
 class MeasureCreateDto(RootModel[MeasurePayload]):
-    @property
+    @ property
     def measure(self) -> MeasurePayload:
         return self.root
 
 
-@register_command(CommandType.MEASURE_REMOVE)
+@ register_command(CommandType.MEASURE_REMOVE)
 class MeasureRemoveDto(BaseModel):
     id_action: int = Field(...,
                            description="ID of the measure to remove",
@@ -190,11 +212,11 @@ class ScheduledCommand(BaseModel):
         ``measure_create``.
     time:
         Simulation time (seconds from midnight) at which to execute the
-        command. Events are executed when the current simulation time is
+        command. Events are executed when the current simulation time (from midnight) is
         greater than or equal to this value.
     payload:
-        Arbitrary payload dictionary. The structure depends on the
-        command type. It is passed to the handler unchanged.
+        Arbitrary payload dictionary.
+        The structure depends on the command type.
     """
     # Means execute command as soon as you encounter it
     IMMEDIATE: ClassVar[float] = -1
@@ -202,13 +224,12 @@ class ScheduledCommand(BaseModel):
     command: CommandType
     time: float = Field(default=IMMEDIATE,
                         description="Sim-time in seconds from midnight,"
-                        "omit or set to -1 for measures that"
-                        "shouldn't be automatically terminated")
+                        f"omit or set to {IMMEDIATE} to run as soon as the simulation starts")
     payload: dict | BaseModel = Field(...,
                                       description="Payload as a DTO or a raw dict")
 
-    @field_validator("payload")
-    @classmethod
+    @ field_validator("payload")
+    @ classmethod
     def _cast_payload(cls, v, info):
         cmd = info.data.get("command")
         if cmd is None or isinstance(v, BaseModel):
@@ -216,7 +237,7 @@ class ScheduledCommand(BaseModel):
         model_cls = get_payload_cls(cmd)
         return model_cls.model_validate(v) if model_cls else v
 
-    @model_validator(mode="after")
+    @ model_validator(mode="after")
     def _ini_must_follow_schedule(self):
         ini_time = getattr(self.payload, "ini_time", None)
         if ini_time is not None and ini_time <= self.time:
