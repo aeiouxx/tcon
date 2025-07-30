@@ -8,7 +8,7 @@
     "ansi": false,
     "modules": {
       "aimsun.entrypoint": {
-        "level": "INFO",
+        "level": "DEBUG",
         "ansi": false,
         "logfile": null
       },
@@ -41,6 +41,16 @@
         "duration": 300,
         "apply_speed_reduction": true,
         "max_speed_SR": 20
+      }
+    },
+    {
+      "command": "measure_create",
+      "time": 360,
+      "payload": {
+        "type": "speed_section",
+        "section_ids": [492],
+        "speed": 5,
+        "duration": 300
       }
     }
   ]

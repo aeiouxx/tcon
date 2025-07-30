@@ -28,6 +28,8 @@ class Schedule:
 
     def ready(self, up_to: float) -> Iterator[ScheduledCommand]:
         """ Yield (and pop) every command with time <= `up_to`"""
+
+        # TODO: don't do raw comparisons on floats
         heap = self._heap
         while heap and heap[0][0] <= up_to:
             yield heapq.heappop(heap)[2]

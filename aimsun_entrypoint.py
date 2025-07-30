@@ -115,6 +115,7 @@ if TYPE_CHECKING:
     from common.schedule import Schedule
     from common.result import Result
     from server.ipc import ServerProcess
+    from common.status import AimsunStatus
 else:
     _imports()
 
@@ -187,9 +188,10 @@ def _incidents_reset() -> Result[int]:
 def _measure_create(payload: MeasureCreateDto) -> Result[int]:
     m = payload.root
     result = _apply_measure(m)
+    log.debug("PAYLOAD: %s", payload.model_dump())
     if (result.is_ok() and m.duration and m.duration > 0 and _SCHEDULE is not None):
         action_id = result.unwrap()
-        ends_at = (m.ini_time or 0) + m.duration
+        ends_at = getattr(payload, "_starts_at_", 0.0) + m.duration
         _SCHEDULE.push(
             ScheduledCommand(
                 command=CommandType.MEASURE_REMOVE,
@@ -202,7 +204,12 @@ def _measure_create(payload: MeasureCreateDto) -> Result[int]:
 
 @register_handler(CommandType.MEASURE_REMOVE)
 def _measure_remove(measure: MeasureRemoveDto) -> Result[int]:
-    code = AKIActionRemoveById(measure.id_action)
+    code = 0
+    try:
+        AKIActionRemoveActionByID(measure.id_action)
+    except Exception as exc:
+        log.exception(exc)
+        code = AimsunStatus.UNKNOWN_ERROR
     return Result.from_aimsun(code,
                               msg_ok=f"Removed measure {measure.id_action}",
                               msg_fail=f"Failed to remove measure {measure.id_action}")
@@ -217,16 +224,14 @@ def _apply_measure(measure) -> Result[int]:
 @_apply_measure.register
 def _(measure: MeasureSpeedSection) -> Result[int]:
     section_count = len(measure.section_ids)
-    section_id_arr = intArray(section_count)
+    section_id_arr: intArray = intArray(section_count)
     for i, sid in enumerate(measure.section_ids):
-        section_id_arr = sid
-
+        section_id_arr[i] = sid
     action_id = next(_ID_GEN)
-    # WARNING: NO RETURN CODES HOW AM I SUPPOSED TO KNOW WE SUCCEEDED...
-    # maybe it throws if wrong or something
+
     AKIActionAddSpeedActionByID(action_id,
                                 section_count,
-                                section_id_arr,
+                                section_id_arr.cast(),
                                 measure.speed,
                                 measure.veh_type,
                                 measure.compliance,
@@ -236,7 +241,10 @@ def _(measure: MeasureSpeedSection) -> Result[int]:
                               msg_fail="Speed‑section action failed")
 
 
-def _execute(cmd_type: CommandType, payload) -> None:
+def _execute(cmd_type: CommandType,
+             payload,
+             *,
+             starts_at: float | None = None) -> None:
     handler = _HANDLERS.get(cmd_type)
     if handler is None:
         log.warning(
@@ -247,6 +255,10 @@ def _execute(cmd_type: CommandType, payload) -> None:
         dto_cls.model_validate(payload)
         if dto_cls and not isinstance(payload, BaseModel)
         else payload)
+    # HACK: UGLY HACK, WE SHOULD PUT EVERY COMMAND INTO THE SCHEDULER AND HANDLE ScheduledCommand always and
+    # simply set to 0 for immediate commands (this way we can handle IPC and config commands in the same handlers)
+    if starts_at is not None and isinstance(payload_obj, BaseModel):
+        object.__setattr__(payload_obj, "_starts_at_", starts_at)
     try:
         res = handler(payload_obj)
         if isinstance(res, Result):
@@ -259,6 +271,14 @@ def _execute(cmd_type: CommandType, payload) -> None:
                             res.raw_code)
     except Exception:
         log.exception("Unhandled error in handler for %s", cmd_type)
+
+
+def _process_schedule(up_to: float) -> None:
+    if not _SCHEDULE:
+        return
+    for sc in _SCHEDULE.ready(up_to):
+        log.debug("Scheduled %s fired at %.2f s", sc.command, up_to)
+        _execute(sc.command, sc.payload, starts_at=sc.start_time())
 
 
 # < Command handlers -----------------------------------------------------------
@@ -303,18 +323,12 @@ def AAPIInit() -> int:
 
 def AAPISimulationReady() -> int:
     start_time = 0.0
-    if not _SCHEDULE:
-        return 0
-    for sc in _SCHEDULE.ready(start_time):
-        _execute(sc.command, sc.payload)
+    _process_schedule(start_time)
     return 0
 
 
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
-    if _SCHEDULE:
-        for sc in _SCHEDULE.ready(timeSta):
-            log.debug("Scheduled %s fired at %.2f s", sc.command, timeSta)
-            _execute(sc.command, sc.payload)
+    _process_schedule(timeSta)
     for raw_cmd in _SERVER.try_recv_all():
         try:
             cmd: Command = Command.parse_obj(raw_cmd)

@@ -129,9 +129,9 @@ class MeasureType(str, Enum):
 
 class _MeasureBase(BaseModel):
     id_action: int = Field(default=-1,
-                           description="Preallocate the ID only if you know what you're doing")
-    ini_time: float | None
-    duration: float | None
+                           description="Preallocate the ID only if you know what you're doing, otherwise leave empty")
+    duration: float | None = Field(default=None,
+                                   description="If set, automatically generate cancellation command for the action")
 
 
 class MeasureSpeedSection(_MeasureBase):
@@ -219,14 +219,21 @@ class ScheduledCommand(BaseModel):
         The structure depends on the command type.
     """
     # Means execute command as soon as you encounter it
-    IMMEDIATE: ClassVar[float] = -1
+    IMMEDIATE: ClassVar[float] = 0.0
 
     command: CommandType
     time: float = Field(default=IMMEDIATE,
+                        ge=0.0,
                         description="Sim-time in seconds from midnight,"
                         f"omit or set to {IMMEDIATE} to run as soon as the simulation starts")
     payload: dict | BaseModel = Field(...,
                                       description="Payload as a DTO or a raw dict")
+
+    def start_time(self) -> float:
+        if hasattr(self.payload, "ini_time") and self.payload.ini_time is not None:
+            return self.payload.ini_time
+
+        return self.time
 
     @field_validator("payload")
     @classmethod
