@@ -28,7 +28,7 @@ class LogManager:
     def __init__(self,
                  default_level: str = "INFO",
                  default_logfile: Optional[pathlib.Path] = None,
-                 use_colors: bool = True):
+                 use_colors: bool = False):
         self.default_level = self.parse_level(default_level)
         self.default_logfile = default_logfile
         self.use_colors = use_colors
@@ -44,36 +44,26 @@ class LogManager:
         if logfile:
             log_path: pathlib.Path = pathlib.Path(logfile)
             logfile = log_path if log_path.is_absolute() else get_project_root() / log_path
-        self.component_config[name] = {
+        cfg = {
             "level": self.parse_level(level) if level else self.default_level,
             "logfile": logfile or self.default_logfile,
             "ansi": self.use_colors if ansi is None else ansi
         }
+        self.component_config[name] = cfg
         if name in self._cache:
-            # invalidate logger on reconfiguration
-            del self._cache[name]
+            self._apply_config(self._cache[name], cfg)
 
-    def get_logger(self,
-                   name: str) -> logging.Logger:
-        """Get (and configure) a logger for a component / module"""
-        if name in self._cache:
-            return self._cache[name]
-
-        config = self.component_config.get(name, {})
-        level = config.get("level", self.default_level)
-        logfile = config.get("logfile", self.default_logfile)
-        ansi = config.get("ansi", self.use_colors)
-
-        logger = logging.getLogger(name)
-        logger.setLevel(level)
+    def _apply_config(self, logger: logging.Logger, cfg: dict) -> None:
+        logger.setLevel(cfg["level"])
         logger.handlers.clear()
         logger.propagate = False
 
-        stream_handler = logging.StreamHandler(sys.stdout)
-        stream_handler.setFormatter(
-            LogLevelFormatter(FMT, DATEFMT) if ansi else logging.Formatter(FMT, DATEFMT))
-        logger.addHandler(stream_handler)
+        fmt_cls = LogLevelFormatter if cfg["ansi"] else logging.Formatter
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt_cls(FMT, DATEFMT))
+        logger.addHandler(sh)
 
+        logfile = cfg.get("logfile", None)
         if logfile:
             arbitrary_file_size = 5 * 1024 ** 2
             file_handler = RotatingFileHandler(
@@ -84,6 +74,19 @@ class LogManager:
             file_handler.setFormatter(logging.Formatter(FMT, DATEFMT))
             logger.addHandler(file_handler)
 
+    def get_logger(self,
+                   name: str) -> logging.Logger:
+        """Get (and configure) a logger for a component / module"""
+        if name in self._cache:
+            return self._cache[name]
+
+        config = self.component_config.get(name, {
+            "level": self.default_level,
+            "logfile": self.default_logfile,
+            "ansi": self.use_colors
+        })
+        logger = logging.getLogger(name)
+        self._apply_config(logger, config)
         self._cache[name] = logger
         return logger
 

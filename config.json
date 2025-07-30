@@ -1,7 +1,7 @@
 {
   "api": {
     "host": "127.0.0.1",
-    "port": "8000"
+    "port": 8000
   },
   "log": {
     "level": "INFO",
@@ -30,16 +30,18 @@
     }
   },
   "schedule": [
-    "command": "incident_create",
-    "payload": {
-      "section_id": 492,
-      "lane": 1,
-      "position": 10.0,
-      "length": 25.0,
-      "ini_time": 60.0,
-      "duration": 300,
-      "apply_speed_reduction": true,
-      "max_speed_SR": 20
+    {
+      "command": "incident_create",
+      "payload": {
+        "section_id": 492,
+        "lane": 1,
+        "position": 10.0,
+        "length": 25.0,
+        "ini_time": 60.0,
+        "duration": 300,
+        "apply_speed_reduction": true,
+        "max_speed_SR": 20
+      }
     }
   ]
 }

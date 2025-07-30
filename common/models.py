@@ -1,7 +1,7 @@
 from __future__ import annotations
 from enum import Enum
 
-from typing import (Annotated, Literal, Union, Final, ClassVar)
+from typing import (Annotated, Literal, Union,  ClassVar)
 
 from pydantic import (
     RootModel,
@@ -184,14 +184,14 @@ MeasurePayload = Annotated[
     Field(discriminator="type")]
 
 
-@ register_command(CommandType.MEASURE_CREATE)
+@register_command(CommandType.MEASURE_CREATE)
 class MeasureCreateDto(RootModel[MeasurePayload]):
-    @ property
+    @property
     def measure(self) -> MeasurePayload:
         return self.root
 
 
-@ register_command(CommandType.MEASURE_REMOVE)
+@register_command(CommandType.MEASURE_REMOVE)
 class MeasureRemoveDto(BaseModel):
     id_action: int = Field(...,
                            description="ID of the measure to remove",
@@ -228,8 +228,8 @@ class ScheduledCommand(BaseModel):
     payload: dict | BaseModel = Field(...,
                                       description="Payload as a DTO or a raw dict")
 
-    @ field_validator("payload")
-    @ classmethod
+    @field_validator("payload")
+    @classmethod
     def _cast_payload(cls, v, info):
         cmd = info.data.get("command")
         if cmd is None or isinstance(v, BaseModel):
@@ -237,7 +237,7 @@ class ScheduledCommand(BaseModel):
         model_cls = get_payload_cls(cmd)
         return model_cls.model_validate(v) if model_cls else v
 
-    @ model_validator(mode="after")
+    @model_validator(mode="after")
     def _ini_must_follow_schedule(self):
         ini_time = getattr(self.payload, "ini_time", None)
         if ini_time is not None and ini_time <= self.time:

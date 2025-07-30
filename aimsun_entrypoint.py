@@ -13,7 +13,6 @@ import importlib
 import sys
 import pathlib
 import json
-import ctypes
 
 from itertools import count
 from functools import singledispatch
@@ -51,7 +50,6 @@ def _import_one(name: str,
     just rerun the simulation to reload the imports.
     Reload `name` if its .py file changed. Supports:
       • import x                 -> hot_import("x")
-      • import x as y            -> hot_import("x", alias="y")
       • from x import a, b       -> hot_import("x", from_list=["a", "b"])
     """
     base_path = pathlib.Path(base_path)
@@ -66,8 +64,13 @@ def _import_one(name: str,
         # reimporting symbols
         spec = importlib.util.spec_from_file_location(name, module_file)
         mod = importlib.util.module_from_spec(spec)
-        assert spec.loader
-        spec.loader.exec_module(mod)
+        sys.modules[name] = mod
+        try:
+            assert spec.loader
+            spec.loader.exec_module(mod)
+        except Exception:
+            sys.modules.pop(name, None)
+            raise
         globals().update({sym: getattr(mod, sym) for sym in from_list})
         _MOD_MTIMES[name] = mtime
     else:
@@ -86,18 +89,17 @@ def _imports():
                            "IncidentRemoveDto",
                            "IncidentsClearSectionDto",
                            "MeasureCreateDto",
-                           "MeasureSpeedSection"
+                           "MeasureSpeedSection",
                            "MeasureRemoveDto",
                            "get_payload_cls"])
-    _import_one("common.config",
-                from_list=["AppConfig",
-                           "load_config"])
+    _import_one("common.config", from_list=["AppConfig", "load_config"])
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
     _import_one("common.schedule", from_list=["Schedule"])
 
 
 if TYPE_CHECKING:
+    from common.config import AppConfig, load_config
     from common.logger import get_logger
     from common.models import (
         CommandType,
@@ -111,7 +113,6 @@ if TYPE_CHECKING:
         MeasureRemoveDto,
         get_payload_cls)
     from common.schedule import Schedule
-    from common.config import AppConfig, load_config
     from common.result import Result
     from server.ipc import ServerProcess
 else:
@@ -119,10 +120,6 @@ else:
 
     # < Module imports -------------------------------------------------------------
     # > Command handlers -----------------------------------------------------------
-_CONFIG: AppConfig | None
-_SCHEDULE: Schedule | None
-
-
 if "_HANDLERS" not in globals():
     _HANDLERS: dict[CommandType, Callable[..., Result]] = {}
 
@@ -268,6 +265,7 @@ def _execute(cmd_type: CommandType, payload) -> None:
 # > AAPI CALLBACKS -------------------------------------------------------------
 log: Logger | None
 _CONFIG: AppConfig
+_SCHEDULE: Schedule
 _SERVER: ServerProcess | None
 _ID_GEN = None
 
