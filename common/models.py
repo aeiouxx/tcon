@@ -1,7 +1,7 @@
 from __future__ import annotations
 from enum import Enum
 
-from typing import (Annotated, Literal, Union, Final, ClassVar)
+from typing import (Annotated, Literal, Union,  ClassVar)
 
 from pydantic import (
     RootModel,
@@ -19,51 +19,33 @@ from pydantic_core import PydanticCustomError
 # registration mechanisms?
 
 
-# > Command ----------------------------------------------------------
+# > Enums ---------------------------------------------------------------------
 class CommandType(str, Enum):
     INCIDENT_CREATE = "incident_create"
     INCIDENT_REMOVE = "incident_remove"
     INCIDENTS_CLEAR_SECTION = "incidents_clear_section"
     INCIDENTS_RESET = "incidents_reset"
-    # First let's test double indirection as measures
-    # will have custom scheduling in common as they can't be
-    # scheduled via the API
     MEASURE_CREATE = "measure_create"
     MEASURE_REMOVE = "measure_remove"
     MEASURES_CLEAR = "measures_clear"
 
 
-class Command(BaseModel):
-    type: CommandType
-    payload: dict | None
-# < Command ----------------------------------------------------------
+class MeasureType(str, Enum):
+    """
+    Enumerates supported traffic‑management actions
+    """
+    SPEED_SECTION = "speed_section"
+    SPEED_DETAILED = "speed_detailed"
+    LANE_CLOSURE = "lane_closure"
+    LANE_CLOSURE_DETAILED = "lane_closure_detailed"
+    LANE_DEACTIVATE_RESERVED = "lane_deactivate_reserved"
+    TURN_CLOSE = "turn_close"
+    TURN_FORCE = "turn_force"
+
+# < Enums ----------------------------------------------------------
 
 
-# > Utilities ----------------------------------------------------------
-_COMMAND_REGISTRY: dict[CommandType, type[BaseModel]] = {}
-_DTO_TO_TYPE: dict[type[BaseModel], CommandType] = {}
-
-
-def get_command_type(dto_cls: type[BaseModel]) -> CommandType | None:
-    return _DTO_TO_TYPE.get(dto_cls)
-
-
-def get_payload_cls(type: CommandType) -> type[BaseModel] | None:
-    return _COMMAND_REGISTRY.get(type)
-
-
-def register_command(type: CommandType):
-    def decorator(cls: type[BaseModel]):
-        if type not in _COMMAND_REGISTRY:
-            _COMMAND_REGISTRY[type] = cls
-            _DTO_TO_TYPE[cls] = type
-        return cls
-    return decorator
-# < Utilities ----------------------------------------------------------
-
-
-# > Incidents ----------------------------------------------------------
-@register_command(CommandType.INCIDENT_CREATE)
+# > Incidents -----------------------------------------------------------------
 class IncidentCreateDto(BaseModel):
     """Incident to be generated"""
     section_id: int = Field(...,
@@ -92,142 +74,237 @@ class IncidentCreateDto(BaseModel):
         default=50, description="If the reduction is to be applied, the target reduced speed")
 
 
-@register_command(CommandType.INCIDENT_REMOVE)
 class IncidentRemoveDto(BaseModel):
-    section_id: int = Field(
-        ..., description="Identifier of the section where the incident to remove is located")
+    section_id: int = Field(...,
+                            description="Identifier of the section where the incident to remove is located")
     lane: int = Field(...,
                       description="Lane where the incident will be generated")
-    position: float = Field(
-        ..., description="Position of the incident in the section (from the beginning of the section).")
+    position: float = Field(...,
+                            description="Position of the incident in the section (from the beginning of the section).")
 
 
-@register_command(CommandType.INCIDENTS_CLEAR_SECTION)
 class IncidentsClearSectionDto(BaseModel):
-    section_id: int = Field(
-        ..., description="Identifier of the section to clear of incidents")
-# < Incidents ------------------------------------------------------------------
+    section_id: int = Field(...,
+                            description="Identifier of the section to clear of incidents")
+# < Incidents -----------------------------------------------------------------
 
-
-# > Measure --------------------------------------------------------------------
-class MeasureType(str, Enum):
-    """
-    Enumerates supported traffic‑management actions
-    """
-    # Because we're in Python we have to supply the ID for each action
-    # which makes integration with REST tricky
-    # (we will either autogenerate the ID or user will provide one which can result in async errors).
-    # This mechanism also makes integration with decision making software subpar as we only
-    # cancel actions based on time, more sophisticated implementation should use C++ anyway
-    # as some actions aren't even supported in Python
-    SPEED_SECTION = "speed_section"                     # AKIActionAddSpeedSectionById
-    SPEED_DETAILED = "detailed_speed"                   # AKIActionAddDetailedSpeedById
-    LANE_CLOSURE = "lane_closure"                       # AKIActionAddLaneClosureById
-    LANE_CLOSURE_DETAILED = "detailed_lane_closure"     # AKIActionAddDetailedLaneClosureById
-
-    # AKIActionAddNextTurningResultActionByID => when traffic demand is based on traffic states
-    # AKIActionAddNextTurningODActionByID => when traffic demand is based on OD matrices
-    FORCE_TURN = "force_turn"
+# > Measures --------------------------------------------------------------------
 
 
 class _MeasureBase(BaseModel):
-    id_action: int = Field(default=-1,
-                           description="Preallocate the ID only if you know what you're doing")
-    ini_time: float | None
-    duration: float | None
+    id_action: int | None = Field(default=None,
+                                  description="Preallocate the ID only if you know what you're doing, otherwise omit this field")
+    duration: float | None = Field(default=None,
+                                   description="If set, automatically generate cancellation command for the action")
 
 
 class MeasureSpeedSection(_MeasureBase):
+    """
+    Changes the speed limit in one or many sections.
+    Calls the AKIActionAddSpeedSectionById API function.
+    """
     type: Literal[MeasureType.SPEED_SECTION] = MeasureType.SPEED_SECTION
+    section_ids: list[int] = Field(...,
+                                   min_length=1,
+                                   description="List of section IDs to apply measure to")
+    speed: float = Field(...,
+                         gt=0,
+                         description="Target speed (km/h")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+    consider_speed_acceptance: bool = Field(default=True,
+                                            description="False -> override speed acceptance factor")
 
 
 class MeasureSpeedDetailed(_MeasureBase):
     type: Literal[MeasureType.SPEED_DETAILED] = MeasureType.SPEED_DETAILED
+    section_ids: list[int] = Field(...,
+                                   min_length=1,
+                                   description="List of section IDs to apply measure to")
+    lane_id: int = Field(default=-1,
+                         description="The lane identifier (-1 for all lanes, 1 for the rightmost lane"
+                         "and N, where N is the number of lanes in the section, for the leftmost lane")
+    from_segment_id: int = Field(...,
+                                 description="Not documented in Aimsun")
+    to_segment_id: int = Field(...,
+                               description="Not documented in Aimsun")
+    speed: float = Field(...,
+                         gt=0,
+                         description="Target speed (km/h")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+    consider_speed_acceptance: bool = Field(default=True,
+                                            description="False -> override speed acceptance factor")
 
 
 class MeasureLaneClosure(_MeasureBase):
     type: Literal[MeasureType.LANE_CLOSURE] = MeasureType.LANE_CLOSURE
+    section_id: int = Field(..., description="Identifier of the section to apply action to")
+    lane_id: int = Field(..., description="Identifier of the lane to apply action to")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
 
 
 class MeasureLaneClosureDetailed(_MeasureBase):
     type: Literal[MeasureType.LANE_CLOSURE_DETAILED] = MeasureType.LANE_CLOSURE_DETAILED
+    section_id: int = Field(..., description="Identifier of the section to apply action to")
+    lane_id: int = Field(..., description="Identifier of the lane to apply action to")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    apply_2LCF: bool = Field(default=False,
+                             description="True if the 2-lanes car following model is to be considered")
+    visibility_distance: float = Field(default=200,
+                                       description="The distance at which the lane closure will start to be visible for vehicles")
 
 
-class MeasureForceTurn(_MeasureBase):
-    type: Literal[MeasureType.FORCE_TURN] = MeasureType.FORCE_TURN
+class MeasureLaneDeactivateReserved(_MeasureBase):
+    type: Literal[MeasureType.LANE_DEACTIVATE_RESERVED] = MeasureType.LANE_DEACTIVATE_RESERVED
+    section_id: int = Field(..., description="Identifier of the section to apply action to")
+    lane_id: int = Field(..., description="Identifier of the lane to apply action to")
+    segment_id: int = Field(default=-1,
+                            description="0..N-1 where N is number of segments present within section or -1 to apply to all segments.")
+
+
+# TODO: For OD matrices only?
+class MeasureTurnClose(_MeasureBase):
+    type: Literal[MeasureType.TURN_CLOSE] = MeasureType.TURN_CLOSE
+    from_section_id: int = Field(..., description="Turn origin section identifier.")
+    to_section_id: int = Field(..., description="Turn destination section identifier.")
+    origin_centroid:  int = Field(
+        default=-1, description="Centroid origin identifier, -1 means do not consider origin with set compliance")
+    destination_centroid:  int = Field(
+        default=-1, description="Centroid destination identifier, -1 means do not consider destination with set compliance")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+    visibility_distance: float = Field(default=200,
+                                       description="The distance at which the lane closure will start to be visible for vehicles")
+    local_effect: bool = Field(default=True,
+                               description="If vehicles do not have apriori knowledge of closure - true, else global knowledge")
+    section_affecting_path_cost_id: int = Field(default=-1,
+                                                description="Identifier to the section meant to affect the path calculation cost when the path comes from it")
+
+
+class MeasureTurnForce(_MeasureBase):
+    type: Literal[MeasureType.TURN_FORCE] = MeasureType.TURN_FORCE
 
 
 MeasurePayload = Annotated[
-    Union[MeasureSpeedSection, MeasureSpeedDetailed, MeasureLaneClosure, MeasureLaneClosureDetailed, MeasureForceTurn],
+    Union[
+        MeasureSpeedSection,
+        MeasureSpeedDetailed,
+        MeasureLaneClosure,
+        MeasureLaneClosureDetailed,
+        MeasureLaneDeactivateReserved,
+        MeasureTurnClose,
+        MeasureTurnForce
+    ],
     Field(discriminator="type")]
 
 
-@register_command(CommandType.MEASURE_CREATE)
 class MeasureCreateDto(RootModel[MeasurePayload]):
     @property
     def measure(self) -> MeasurePayload:
         return self.root
 
 
-@register_command(CommandType.MEASURE_REMOVE)
 class MeasureRemoveDto(BaseModel):
     id_action: int = Field(...,
                            description="ID of the measure to remove",
                            gt=0)
 
-# < Measure --------------------------------------------------------------------
+# < Measures --------------------------------------------------------------------
 
 
-# > Scheduled command ----------------------------------------------------------
-class ScheduledCommand(BaseModel):
-    """Represents a scheduled command loaded from configuration.
-
-    Attributes
-    ----------
-    command:
-        The command type corresponding to ``CommandType``. Must match one
-        of the known command identifiers such as ``incident_create`` or
-        ``measure_create``.
-    time:
-        Simulation time (seconds from midnight) at which to execute the
-        command. Events are executed when the current simulation time is
-        greater than or equal to this value.
-    payload:
-        Arbitrary payload dictionary. The structure depends on the
-        command type. It is passed to the handler unchanged.
-    """
-    # Means execute command as soon as you encounter it
+# > Command Wrappers ------------------------------------------------------------
+class CommandBase(BaseModel):
     IMMEDIATE: ClassVar[float] = -1
 
     command: CommandType
     time: float = Field(default=IMMEDIATE,
                         description="Sim-time in seconds from midnight,"
-                        "omit or set to -1 for measures that"
-                        "shouldn't be automatically terminated")
-    payload: dict | BaseModel = Field(...,
-                                      description="Payload as a DTO or a raw dict")
+                        f"omit or set to {IMMEDIATE} to run as soon as possible")
 
-    @field_validator("payload")
-    @classmethod
-    def _cast_payload(cls, v, info):
-        cmd = info.data.get("command")
-        if cmd is None or isinstance(v, BaseModel):
-            return v
-        model_cls = get_payload_cls(cmd)
-        return model_cls.model_validate(v) if model_cls else v
+
+class IncidentCreateCmd(CommandBase):
+    command: Literal[CommandType.INCIDENT_CREATE] = CommandType.INCIDENT_CREATE
+    payload: IncidentCreateDto
 
     @model_validator(mode="after")
-    def _ini_must_follow_schedule(self):
-        ini_time = getattr(self.payload, "ini_time", None)
-        if ini_time is not None and ini_time <= self.time:
+    def _ini_after_time(self):
+        if self.payload.ini_time <= self.time:
             raise PydanticCustomError(
                 "ini_time_before_schedule",
                 "payload.ini_time ({ini_time}) must be greater than "
                 "schedule.time ({scheduled_time})",
-                {"ini_time": ini_time, "scheduled_time": self.time})
+                {
+                    "ini_time": self.payload.ini_time,
+                    "scheduled_time": self.time,
+                },
+            )
         return self
 
 
-class ScheduleRoot(RootModel[list[ScheduledCommand]]):
+class IncidentRemoveCmd(CommandBase):
+    command: Literal[CommandType.INCIDENT_REMOVE] = CommandType.INCIDENT_REMOVE
+    payload: IncidentRemoveDto
+
+
+class IncidentsClearSectionCmd(CommandBase):
+    command: Literal[CommandType.INCIDENTS_CLEAR_SECTION] = CommandType.INCIDENTS_CLEAR_SECTION
+    payload: IncidentsClearSectionDto
+
+
+class IncidentsResetCmd(CommandBase):
+    command: Literal[CommandType.INCIDENTS_RESET] = CommandType.INCIDENTS_RESET
+    payload: None = Field(default=None)
+
+
+class MeasureCreateCmd(CommandBase):
+    command: Literal[CommandType.MEASURE_CREATE] = CommandType.MEASURE_CREATE
+    payload: MeasureCreateDto
+
+
+class MeasureRemoveCmd(CommandBase):
+    command: Literal[CommandType.MEASURE_REMOVE] = CommandType.MEASURE_REMOVE
+    payload: MeasureRemoveDto
+
+
+class MeasuresClearCmd(CommandBase):
+    command: Literal[CommandType.MEASURES_CLEAR] = CommandType.MEASURES_CLEAR
+    payload: None = Field(default=None)
+
+
+Command = Annotated[
+    Union[
+        IncidentCreateCmd,
+        IncidentRemoveCmd,
+        IncidentsClearSectionCmd,
+        IncidentsResetCmd,
+        MeasureCreateCmd,
+        MeasureRemoveCmd,
+        MeasuresClearCmd
+    ],
+    Field(discriminator="command")]
+# < Command Wrappers ------------------------------------------------------------
+
+
+class ScheduleRoot(RootModel[list[Command]]):
     pass
 # < Scheduled command ----------------------------------------------------------

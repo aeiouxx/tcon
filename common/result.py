@@ -18,6 +18,16 @@ class Result(Generic[T]):
         self.raw_code = raw_code
         self.message = message
 
+    @classmethod
+    def ok(cls, value: T | None, message: str | None = None) -> "Result[T]":
+        """Create a Result that represents success."""
+        return cls(status=AimsunStatus.OK, value=value, message=message)
+
+    @classmethod
+    def err(cls, message: str, code: int | None = None) -> "Result[None]":
+        """Create a Result that represents failure."""
+        return cls(status=AimsunStatus.ERROR, raw_code=code, message=message)
+
     def is_ok(self) -> bool:
         return self.status == AimsunStatus.OK
 
@@ -29,15 +39,15 @@ class Result(Generic[T]):
     def __repr__(self) -> str:
         return f"Result(status={self.status}, value={self.value}, code={self.raw_code}, msg={self.message})"
 
-    # TODO: hopefully the API is consistent with err values as < 0...
+    # TODO: hopefully the API is consistent with err values as < 0... (it wasn't)
     @classmethod
     def from_aimsun(cls,
                     result: int, *,
                     msg_ok: str = None,
-                    msg_fail: str = None) -> Result[int]:
+                    msg_err: str = None) -> Result[int]:
         success = result >= 0
         status = AimsunStatus.OK if success else AimsunStatus.from_code(result)
-        message = (msg_ok if success else msg_fail)
+        message = (msg_ok if success else msg_err)
         return cls(status=status,
                    raw_code=result,
                    value=result if success else None,

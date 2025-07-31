@@ -34,15 +34,18 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Final, ClassVar
+from typing import Any, Dict, Final, ClassVar
 from pydantic import ValidationError
 
-from common.models import CommandType, ScheduledCommand, ScheduleRoot
+from common.models import ScheduleRoot
 from common.logger import get_log_manager, get_logger
 from common.schedule import Schedule
 
 
 log = get_logger(__name__)
+
+# TODO: Separate app config and schedules?
+# config.json, schedule.yaml or json?
 
 
 @dataclass
@@ -77,6 +80,7 @@ class AppConfig:
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
         if not data:
             return AppConfig()
+
         api_cfg = data.get("api", {})
         api_host = api_cfg.get("host") or AppConfig.DEFAULT_HOST
         api_port = api_cfg.get("port") or AppConfig.DEFAULT_PORT
@@ -97,7 +101,7 @@ class AppConfig:
         try:
             parsed = ScheduleRoot.model_validate(raw_schedule)
             schedule = Schedule(parsed.root)
-            log.info(f"Schedule parsed without errors, size: {len(schedule)}")
+            log.info("Loaded schedule, %d entries", len(schedule))
         except ValidationError as exc:
             for err in exc.errors():
                 loc = ".".join(str(p) for p in err["loc"])

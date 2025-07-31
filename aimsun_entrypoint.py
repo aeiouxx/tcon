@@ -13,8 +13,11 @@ import importlib
 import sys
 import pathlib
 import json
+from inspect import signature
+
+from itertools import count
+from functools import singledispatch, wraps
 from logging import Logger
-from pydantic import BaseModel
 
 try:
     from AAPI import *
@@ -37,18 +40,16 @@ _MOD_MTIMES: dict[str, float] = globals()["_MOD_MTIMES"]
 
 
 def _import_one(name: str,
-                alias: str = None,
                 from_list: list[str] = None,
                 *,
                 base_path: str | pathlib.Path = pathlib.Path(__file__).parent) -> None:
-    # WARNING: HOT RELOADING MODULES WITH GLOBAL SCRIPTS IS NOT A GOOD IDEA, AS WE MIGHT RERUN
-    # TODO: implement aliasing
+    # WARNING: hot reloading modules with global scripts is not a good idea, unless
+    # the scripts are idempotent!
     """
     Allows modifying imported code at runtime without having to relaunch Aimsun,
     just rerun the simulation to reload the imports.
     Reload `name` if its .py file changed. Supports:
       • import x                 -> hot_import("x")
-      • import x as y            -> hot_import("x", alias="y")
       • from x import a, b       -> hot_import("x", from_list=["a", "b"])
     """
     base_path = pathlib.Path(base_path)
@@ -63,8 +64,13 @@ def _import_one(name: str,
         # reimporting symbols
         spec = importlib.util.spec_from_file_location(name, module_file)
         mod = importlib.util.module_from_spec(spec)
-        assert spec.loader
-        spec.loader.exec_module(mod)
+        sys.modules[name] = mod
+        try:
+            assert spec.loader
+            spec.loader.exec_module(mod)
+        except Exception:
+            sys.modules.pop(name, None)
+            raise
         globals().update({sym: getattr(mod, sym) for sym in from_list})
         _MOD_MTIMES[name] = mtime
     else:
@@ -76,53 +82,85 @@ def _import_one(name: str,
 def _imports():
     _import_one("common.logger", from_list=["get_logger"])
     _import_one("common.models",
-                from_list=["CommandType",
-                           "Command",
-                           "ScheduledCommand",
-                           "IncidentCreateDto",
-                           "IncidentRemoveDto",
-                           "IncidentsClearSectionDto",
-                           "get_payload_cls"])
-    _import_one("common.config",
-                from_list=["AppConfig",
-                           "load_config"])
+                from_list=[
+                    "Command",
+                    "CommandType",
+                    "CommandBase",
+                    "IncidentCreateDto",
+                    "IncidentRemoveDto",
+                    "IncidentsClearSectionDto",
+                    "MeasureCreateDto",
+                    "MeasureSpeedSection",
+                    "MeasureSpeedDetailed",
+                    "MeasureLaneClosure",
+                    "MeasureLaneClosureDetailed",
+                    "MeasureLaneDeactivateReserved",
+                    "MeasureTurnClose",
+                    "MeasureRemoveCmd",
+                    "MeasureRemoveDto"])
+    _import_one("common.config", from_list=["AppConfig", "load_config"])
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
     _import_one("common.schedule", from_list=["Schedule"])
 
 
 if TYPE_CHECKING:
+    from common.config import AppConfig, load_config
     from common.logger import get_logger
     from common.models import (
-        CommandType,
         Command,
-        ScheduledCommand,
+        CommandType,
+        CommandBase,
         IncidentCreateDto,
         IncidentRemoveDto,
         IncidentsClearSectionDto,
-        get_payload_cls)
+        MeasureCreateDto,
+        MeasureSpeedSection,
+        MeasureSpeedDetailed,
+        MeasureLaneClosure,
+        MeasureLaneClosureDetailed,
+        MeasureLaneDeactivateReserved,
+        MeasureTurnClose,
+        MeasureRemoveCmd,
+        MeasureRemoveDto)
     from common.schedule import Schedule
-    from common.config import AppConfig, load_config
     from common.result import Result
     from server.ipc import ServerProcess
+    from common.status import AimsunStatus
 else:
     _imports()
 
     # < Module imports -------------------------------------------------------------
     # > Command handlers -----------------------------------------------------------
-_CONFIG: AppConfig | None
-_SCHEDULE: Schedule | None
-
-
 if "_HANDLERS" not in globals():
     _HANDLERS: dict[CommandType, Callable[..., Result]] = {}
 
 
 def register_handler(type: CommandType):
-    def decorator(func: callable):
-        _HANDLERS[type] = func
-        return func
-    return decorator
+    """
+    Decorate a `Plain` handler or `TimedHandler` and register it
+    """
+    def deco(fn):
+        sig_len = len(signature(fn).parameters)
+        if sig_len == 0:
+            @wraps(fn)
+            def wrapper(cmd: Command):
+                return fn()
+        elif sig_len == 1:
+            @wraps(fn)
+            def wrapper(cmd: Command):
+                return fn(cmd.payload)
+        elif sig_len == 2:
+            @wraps(fn)
+            def wrapper(cmd: Command):
+                return fn(cmd.payload, cmd.time)
+        else:
+            raise TypeError(
+                f"Handler for {type.value} must take 0, 1, or 2 positional "
+                f"parameters, not {sig_len}")
+        _HANDLERS[type] = wrapper
+        return fn
+    return deco
 
 
 @register_handler(CommandType.INCIDENT_CREATE)
@@ -142,7 +180,7 @@ def _incident_create(payload: IncidentCreateDto) -> Result[int]:
         payload.max_speed_SR)
     return Result.from_aimsun(result,
                               msg_ok=f"Incident created successfuly, id: {result}.",
-                              msg_fail="Incident creation failed")
+                              msg_err="Incident creation failed")
 
 
 @register_handler(CommandType.INCIDENT_REMOVE)
@@ -155,7 +193,7 @@ def _incident_remove(payload: IncidentRemoveDto) -> Result[int]:
         payload.position)
     return Result.from_aimsun(result,
                               msg_ok=f"Removed incident from section: {payload.section_id}",
-                              msg_fail="Incident removal failed")
+                              msg_err="Incident removal failed")
 
 
 @register_handler(CommandType.INCIDENTS_CLEAR_SECTION)
@@ -163,7 +201,7 @@ def _incident_clear_section(payload: IncidentsClearSectionDto) -> Result[int]:
     result = AKIRemoveAllIncidentsInSection(payload.section_id)
     return Result.from_aimsun(result,
                               msg_ok=f"Cleared incidents from section: {payload.section_id}",
-                              msg_fail=f"Failed clearing incidents for section: {payload.section_id}")
+                              msg_err=f"Failed clearing incidents for section: {payload.section_id}")
 
 
 @register_handler(CommandType.INCIDENTS_RESET)
@@ -171,22 +209,187 @@ def _incidents_reset() -> Result[int]:
     result = AKIResetAllIncidents()
     return Result.from_aimsun(result,
                               msg_ok="Cleared all incidents",
-                              msg_fail="Failed clearing incidents")
+                              msg_err="Failed clearing incidents")
 
 
-def _execute(cmd_type: CommandType, payload) -> None:
-    handler = _HANDLERS.get(cmd_type)
+@register_handler(CommandType.MEASURE_CREATE)
+def _measure_create(payload: MeasureCreateDto, starts_at: float) -> Result[int]:
+    m = payload.root
+    result = _apply_measure(m)
+    if (result.is_ok() and m.duration and m.duration > 0 and _SCHEDULE is not None):
+        action_id = result.unwrap()
+        ends_at = starts_at + m.duration
+        _SCHEDULE.push(
+            MeasureRemoveCmd(
+                time=ends_at,
+                payload=MeasureRemoveDto(id_action=action_id)))
+        log.debug("Auto‑scheduled MEASURE_REMOVE id=%s at t=%.1f s", action_id, ends_at)
+
+    return result
+
+
+@register_handler(CommandType.MEASURE_REMOVE)
+def _measure_remove(measure: MeasureRemoveDto) -> Result[int]:
+    code = 0
+    try:
+        AKIActionRemoveActionByID(measure.id_action)
+    except Exception as exc:
+        log.exception(exc)
+        code = AimsunStatus.UNKNOWN_ERROR
+    return Result.from_aimsun(code,
+                              msg_ok=f"Removed measure {measure.id_action}",
+                              msg_err=f"Failed to remove measure {measure.id_action}")
+
+
+@register_handler(CommandType.MEASURES_CLEAR)
+def _measures_clear() -> Result[int]:
+    pass
+
+
+@singledispatch
+def _apply_measure(measure) -> Result[int]:
+    raise NotImplementedError(type(measure))
+
+
+@_apply_measure.register
+def _(m: MeasureSpeedSection) -> Result[int]:
+    section_count = len(m.section_ids)
+    section_id_arr: intArray = intArray(section_count)
+    for i, sid in enumerate(m.section_ids):
+        section_id_arr[i] = sid
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionAddSpeedActionByID(action_id,
+                                    section_count,
+                                    section_id_arr.cast(),
+                                    m.speed,
+                                    m.veh_type,
+                                    m.compliance,
+                                    m.consider_speed_acceptance)
+    except Exception as exc:
+        log.exception("Speed section API call failed: %s", exc)
+        return Result.err("Speed-section action failed")
+
+    return Result.ok(action_id,
+                     f"Speed {m.speed} km/h on {m.section_ids} (id={action_id})")
+
+
+@_apply_measure.register
+def _(m: MeasureSpeedDetailed) -> Result[int]:
+    section_count = len(m.section_ids)
+    section_id_arr: intArray = intArray(section_count)
+    for i, sid in enumerate(m.section_ids):
+        section_id_arr[i] = sid
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionAddDetailedSpeedActionByID(action_id,
+                                            section_count,
+                                            section_id_arr.cast(),
+                                            m.lane_id,
+                                            m.from_segment_id,
+                                            m.to_segment_id,
+                                            m.speed,
+                                            m.veh_type,
+                                            m.compliance,
+                                            m.consider_speed_acceptance)
+    except Exception as exc:
+        log.exception("Detailed-speed API call failed: %s", exc)
+        return Result.err("Detailed-speed action failed")
+
+    msg = (
+        f"Speed {m.speed} km/h on sections {m.section_ids}, "
+        f"lane {m.lane_id}, seg {m.from_segment_id}-{m.to_segment_id} "
+        f"(id={action_id})"
+    )
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureLaneClosure) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionCloseLaneActionByID(action_id,
+                                     m.section_id,
+                                     m.lane_id,
+                                     m.veh_type)
+    except Exception as exc:
+        log.exception("Lane-closure API failed: %s", exc)
+        return Result.err("Lane-closure action failed")
+
+    msg = f"Closed lane {m.lane_id} in section {m.section_id} (id={action_id})"
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureLaneClosureDetailed) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionCloseLaneDetailedActionByID(action_id,
+                                             m.section_id,
+                                             m.lane_id,
+                                             m.veh_type,
+                                             m.apply_2LCF,
+                                             m.visibility_distance)
+    except Exception as exc:
+        log.exception("Lane-closure API failed: %s", exc)
+        return Result.err("Lane-closure action failed")
+
+    msg = f"Closed lane {m.lane_id} in section {m.section} (id={action_id})"
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureLaneDeactivateReserved) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionDisableReservedLaneActionByID(action_id,
+                                               m.section_id,
+                                               m.lane_id,
+                                               m.segment_id)
+    except Exception as exc:
+        log.exception("Lane unreserve API failed: %s", exc)
+        return Result.err("Lane unreserve action failed")
+
+    msg = f"Unreserved lane {m.lane_id} in section {m.section_id} (id={action_id})"
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureTurnClose) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionAddCloseTurningODActionByID(action_id,
+                                             m.from_section_id,
+                                             m.to_section_id,
+                                             m.origin_centroid,
+                                             m.destination_centroid,
+                                             m.veh_type,
+                                             m.compliance,
+                                             m.visibility_distance,
+                                             m.local_effect,
+                                             m.section_affecting_path_cost_id)
+    except Exception as exc:
+        log.exception("Close-turn API failed: %s", exc)
+        return Result.err("Close-turn action failed")
+    msg = (
+        f"Closed turn {m.from_section_id}→{m.to_section_id} "
+        f"(veh_type={m.veh_type}, id={action_id})"
+    )
+    return Result.ok(action_id, msg)
+
+
+def _execute(cmd: Command) -> None:
+    """
+    Execute one validated Command
+    """
+    handler = _HANDLERS.get(cmd.command)
     if handler is None:
         log.warning(
-            "No handler registered for command type: %s", cmd_type)
+            "No handler registered for command type: %s", cmd.command)
         return
-    dto_cls = get_payload_cls(cmd_type)
-    payload_obj = (
-        dto_cls.model_validate(payload)
-        if dto_cls and not isinstance(payload, BaseModel)
-        else payload)
+
     try:
-        res = handler(payload_obj)
+        res = handler(cmd)
         if isinstance(res, Result):
             if res.is_ok():
                 log.info("%s", res.message)
@@ -196,14 +399,24 @@ def _execute(cmd_type: CommandType, payload) -> None:
                             res.status.name,
                             res.raw_code)
     except Exception:
-        log.exception("Unhandled error in handler for %s", cmd_type)
+        log.exception("Unhandled error in handler for %s", cmd.command)
+
+
+def _process_schedule(up_to: float) -> None:
+    if not _SCHEDULE:
+        return
+    for cmd in _SCHEDULE.ready(up_to):
+        log.debug("Scheduled %s fired at %.2f s", cmd.command, up_to)
+        _execute(cmd)
 
 
 # < Command handlers -----------------------------------------------------------
 # > AAPI CALLBACKS -------------------------------------------------------------
 log: Logger | None
-config: AppConfig
+_CONFIG: AppConfig
+_SCHEDULE: Schedule
 _SERVER: ServerProcess | None
+_ID_GEN = None
 
 
 def _load():
@@ -216,14 +429,14 @@ def _load():
     later use when scheduling events.
     """
     _imports()
-    global log, _SERVER, _CONFIG, _SCHEDULE
+    global log, _SERVER, _CONFIG, _SCHEDULE, _ID_GEN
 
     # hash + mtime on config -> cache it?
     _CONFIG = load_config()
     log = get_logger("aimsun.entrypoint")
     _SERVER = ServerProcess(host=_CONFIG.api_host, port=_CONFIG.api_port)
-
     _SCHEDULE = _CONFIG.schedule
+    _ID_GEN = count(1)
 
 
 def AAPILoad() -> int:
@@ -239,18 +452,12 @@ def AAPIInit() -> int:
 
 def AAPISimulationReady() -> int:
     start_time = 0.0
-    if not _SCHEDULE:
-        return 0
-    for sc in _SCHEDULE.ready(start_time):
-        _execute(sc.command, sc.payload)
+    _process_schedule(start_time)
     return 0
 
 
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
-    if _SCHEDULE:
-        for sc in _SCHEDULE.ready(timeSta):
-            log.debug("Scheduled %s fired at %.2f s", sc.command, timeSta)
-            _execute(sc.command, sc.payload)
+    _process_schedule(timeSta)
     for raw_cmd in _SERVER.try_recv_all():
         try:
             cmd: Command = Command.parse_obj(raw_cmd)
@@ -310,28 +517,3 @@ def AAPIPreRouteChoiceCalculation(time: float, timeSta: float) -> int:
 def AAPIVehicleStartParking(idveh: int, idsection: int, time: float) -> int:
     return 0
 # < AAPI CALLBACKS -------------------------------------------------------------
-
-
-if __name__ == "__main__":
-    import signal
-    _load()
-    log = get_logger("AIMSUN_ENTRY", "DEBUG", disable_ansi=False)
-    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
-    with ServerProcess() as srv:
-        while True:
-            if not srv._proc or not srv._proc.is_alive():
-                log.critical("Server is not running")
-                break
-            for raw_cmd in srv.try_recv_all():
-                try:
-                    cmd: Command = Command.model_validate(raw_cmd)
-                    log.info("Received command:\n%s", json.dumps(cmd.__dict__, indent=2))
-                    handler = _HANDLERS.get(cmd.type)
-                    if handler is None:
-                        log.warning(
-                            "No handler registered for command type: %s", cmd.type)
-                        continue
-                except Exception as e:
-                    import time
-                    time.sleep(1)
-                    log.exception("Failed when processing message: %s", e)
