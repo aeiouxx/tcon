@@ -118,13 +118,12 @@ class MeasureType(str, Enum):
     # cancel actions based on time, more sophisticated implementation should use C++ anyway
     # as some actions aren't even supported in Python
     SPEED_SECTION = "speed_section"                     # AKIActionAddSpeedSectionById
-    SPEED_DETAILED = "detailed_speed"                   # AKIActionAddDetailedSpeedById
+    SPEED_DETAILED = "speed_detailed"                   # AKIActionAddDetailedSpeedById
     LANE_CLOSURE = "lane_closure"                       # AKIActionAddLaneClosureById
-    LANE_CLOSURE_DETAILED = "detailed_lane_closure"     # AKIActionAddDetailedLaneClosureById
-
-    # AKIActionAddNextTurningResultActionByID => when traffic demand is based on traffic states
-    # AKIActionAddNextTurningODActionByID => when traffic demand is based on OD matrices
-    FORCE_TURN = "force_turn"
+    LANE_CLOSURE_DETAILED = "lane_closure_detailed"     # AKIActionAddDetailedLaneClosureById
+    LANE_DEACTIVATE_RESERVED = "lane_deactivate_reserved"
+    TURN_CLOSE = "turn_close"
+    TURN_FORCE = "turn_force"
 
 
 class _MeasureBase(BaseModel):
@@ -205,8 +204,40 @@ class MeasureLaneClosureDetailed(_MeasureBase):
                                        description="The distance at which the lane closure will start to be visible for vehicles")
 
 
-class MeasureForceTurn(_MeasureBase):
-    type: Literal[MeasureType.FORCE_TURN] = MeasureType.FORCE_TURN
+class MeasureLaneDeactivateReserved(_MeasureBase):
+    type: Literal[MeasureType.LANE_DEACTIVATE_RESERVED] = MeasureType.LANE_DEACTIVATE_RESERVED
+    section_id: int = Field(..., description="Identifier of the section to apply action to")
+    lane_id: int = Field(..., description="Identifier of the lane to apply action to")
+    segment_id: int = Field(default=-1,
+                            description="0..N-1 where N is number of segments present within section or -1 to apply to all segments.")
+
+
+# TODO: For OD matrices only?
+class MeasureTurnClose(_MeasureBase):
+    type: Literal[MeasureType.TURN_CLOSE] = MeasureType.TURN_CLOSE
+    from_section_id: int = Field(..., description="Turn origin section identifier.")
+    to_section_id: int = Field(..., description="Turn destination section identifier.")
+    origin_centroid:  int = Field(
+        default=-1, description="Centroid origin identifier, -1 means do not consider origin with set compliance")
+    destination_centroid:  int = Field(
+        default=-1, description="Centroid destination identifier, -1 means do not consider destination with set compliance")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+    visibility_distance: float = Field(default=200,
+                                       description="The distance at which the lane closure will start to be visible for vehicles")
+    local_effect: bool = Field(default=True,
+                               description="If vehicles do not have apriori knowledge of closure - true, else global knowledge")
+    section_affecting_path_cost_id: int = Field(default=-1,
+                                                description="Identifier to the section meant to affect the path calculation cost when the path comes from it")
+
+
+class MeasureTurnForce(_MeasureBase):
+    type: Literal[MeasureType.TURN_FORCE] = MeasureType.TURN_FORCE
 
 
 MeasurePayload = Annotated[
@@ -215,7 +246,9 @@ MeasurePayload = Annotated[
         MeasureSpeedDetailed,
         MeasureLaneClosure,
         MeasureLaneClosureDetailed,
-        MeasureForceTurn
+        MeasureLaneDeactivateReserved,
+        MeasureTurnClose,
+        MeasureTurnForce
     ],
     Field(discriminator="type")]
 
@@ -271,8 +304,8 @@ class ScheduledCommand(BaseModel):
 
         return self.time
 
-    @ field_validator("payload")
-    @ classmethod
+    @field_validator("payload")
+    @classmethod
     def _cast_payload(cls, v, info):
         cmd = info.data.get("command")
         if cmd is None or isinstance(v, BaseModel):
@@ -280,7 +313,7 @@ class ScheduledCommand(BaseModel):
         model_cls = get_payload_cls(cmd)
         return model_cls.model_validate(v) if model_cls else v
 
-    @ model_validator(mode="after")
+    @model_validator(mode="after")
     def _ini_must_follow_schedule(self):
         ini_time = getattr(self.payload, "ini_time", None)
         if ini_time is not None and ini_time <= self.time:

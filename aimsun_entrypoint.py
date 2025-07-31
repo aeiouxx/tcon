@@ -93,6 +93,7 @@ def _imports():
                            "MeasureSpeedDetailed",
                            "MeasureLaneClosure",
                            "MeasureLaneClosureDetailed",
+                           "MeasureTurnClose",
                            "MeasureRemoveDto",
                            "get_payload_cls"])
     _import_one("common.config", from_list=["AppConfig", "load_config"])
@@ -116,6 +117,8 @@ if TYPE_CHECKING:
         MeasureSpeedDetailed,
         MeasureLaneClosure,
         MeasureLaneClosureDetailed,
+        MeasureLaneDeactivateReserved,
+        MeasureTurnClose,
         MeasureRemoveDto,
         get_payload_cls)
     from common.schedule import Schedule
@@ -301,7 +304,7 @@ def _(m: MeasureLaneClosureDetailed) -> Result[int]:
     action_id = m.id_action or next(_ID_GEN)
     try:
         AKIActionCloseLaneDetailedActionByID(action_id,
-                                             m.section,
+                                             m.section_id,
                                              m.lane_id,
                                              m.veh_type,
                                              m.apply_2LCF,
@@ -311,6 +314,46 @@ def _(m: MeasureLaneClosureDetailed) -> Result[int]:
         return Result.err("Lane-closure action failed")
 
     msg = f"Closed lane {m.lane_id} in section {m.section} (id={action_id})"
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureLaneDeactivateReserved) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionDisableReservedLaneActionByID(action_id,
+                                               m.section_id,
+                                               m.lane_id,
+                                               m.segment_id)
+    except Exception as exc:
+        log.exception("Lane unreserve API failed: %s", exc)
+        return Result.err("Lane unreserve action failed")
+
+    msg = f"Unreserved lane {m.lane_id} in section {m.section_id} (id={action_id})"
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureTurnClose) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionAddCloseTurningODActionByID(action_id,
+                                             m.from_section_id,
+                                             m.to_section_id,
+                                             m.origin_centroid,
+                                             m.destination_centroid,
+                                             m.veh_type,
+                                             m.compliance,
+                                             m.visibility_distance,
+                                             m.local_effect,
+                                             m.section_affecting_path_cost_id)
+    except Exception as exc:
+        log.exception("Close-turn API failed: %s", exc)
+        return Result.err("Close-turn action failed")
+    msg = (
+        f"Closed turn {m.from_section_id}→{m.to_section_id} "
+        f"(veh_type={m.veh_type}, id={action_id})"
+    )
     return Result.ok(action_id, msg)
 
 
