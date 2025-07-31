@@ -19,7 +19,7 @@ from pydantic_core import PydanticCustomError
 # registration mechanisms?
 
 
-# > Command ----------------------------------------------------------
+# > Enums ---------------------------------------------------------------------
 class CommandType(str, Enum):
     INCIDENT_CREATE = "incident_create"
     INCIDENT_REMOVE = "incident_remove"
@@ -30,37 +30,22 @@ class CommandType(str, Enum):
     MEASURES_CLEAR = "measures_clear"
 
 
-class Command(BaseModel):
-    type: CommandType
-    payload: dict | None
-# < Command ----------------------------------------------------------
+class MeasureType(str, Enum):
+    """
+    Enumerates supported traffic‑management actions
+    """
+    SPEED_SECTION = "speed_section"
+    SPEED_DETAILED = "speed_detailed"
+    LANE_CLOSURE = "lane_closure"
+    LANE_CLOSURE_DETAILED = "lane_closure_detailed"
+    LANE_DEACTIVATE_RESERVED = "lane_deactivate_reserved"
+    TURN_CLOSE = "turn_close"
+    TURN_FORCE = "turn_force"
+
+# < Enums ----------------------------------------------------------
 
 
-# > Utilities ----------------------------------------------------------
-_COMMAND_REGISTRY: dict[CommandType, type[BaseModel]] = {}
-_DTO_TO_TYPE: dict[type[BaseModel], CommandType] = {}
-
-
-def get_command_type(dto_cls: type[BaseModel]) -> CommandType | None:
-    return _DTO_TO_TYPE.get(dto_cls)
-
-
-def get_payload_cls(type: CommandType) -> type[BaseModel] | None:
-    return _COMMAND_REGISTRY.get(type)
-
-
-def register_command(type: CommandType):
-    def decorator(cls: type[BaseModel]):
-        if type not in _COMMAND_REGISTRY:
-            _COMMAND_REGISTRY[type] = cls
-            _DTO_TO_TYPE[cls] = type
-        return cls
-    return decorator
-# < Utilities ----------------------------------------------------------
-
-
-# > Incidents ----------------------------------------------------------
-@register_command(CommandType.INCIDENT_CREATE)
+# > Incidents -----------------------------------------------------------------
 class IncidentCreateDto(BaseModel):
     """Incident to be generated"""
     section_id: int = Field(...,
@@ -89,41 +74,21 @@ class IncidentCreateDto(BaseModel):
         default=50, description="If the reduction is to be applied, the target reduced speed")
 
 
-@register_command(CommandType.INCIDENT_REMOVE)
 class IncidentRemoveDto(BaseModel):
-    section_id: int = Field(
-        ..., description="Identifier of the section where the incident to remove is located")
+    section_id: int = Field(...,
+                            description="Identifier of the section where the incident to remove is located")
     lane: int = Field(...,
                       description="Lane where the incident will be generated")
-    position: float = Field(
-        ..., description="Position of the incident in the section (from the beginning of the section).")
+    position: float = Field(...,
+                            description="Position of the incident in the section (from the beginning of the section).")
 
 
-@register_command(CommandType.INCIDENTS_CLEAR_SECTION)
 class IncidentsClearSectionDto(BaseModel):
-    section_id: int = Field(
-        ..., description="Identifier of the section to clear of incidents")
-# < Incidents ------------------------------------------------------------------
+    section_id: int = Field(...,
+                            description="Identifier of the section to clear of incidents")
+# < Incidents -----------------------------------------------------------------
 
-
-# > Measure --------------------------------------------------------------------
-class MeasureType(str, Enum):
-    """
-    Enumerates supported traffic‑management actions
-    """
-    # Because we're in Python we have to supply the ID for each action
-    # which makes integration with REST tricky
-    # (we will either autogenerate the ID or user will provide one which can result in async errors).
-    # This mechanism also makes integration with decision making software subpar as we only
-    # cancel actions based on time, more sophisticated implementation should use C++ anyway
-    # as some actions aren't even supported in Python
-    SPEED_SECTION = "speed_section"                     # AKIActionAddSpeedSectionById
-    SPEED_DETAILED = "speed_detailed"                   # AKIActionAddDetailedSpeedById
-    LANE_CLOSURE = "lane_closure"                       # AKIActionAddLaneClosureById
-    LANE_CLOSURE_DETAILED = "lane_closure_detailed"     # AKIActionAddDetailedLaneClosureById
-    LANE_DEACTIVATE_RESERVED = "lane_deactivate_reserved"
-    TURN_CLOSE = "turn_close"
-    TURN_FORCE = "turn_force"
+# > Measures --------------------------------------------------------------------
 
 
 class _MeasureBase(BaseModel):
@@ -253,78 +218,93 @@ MeasurePayload = Annotated[
     Field(discriminator="type")]
 
 
-@register_command(CommandType.MEASURE_CREATE)
 class MeasureCreateDto(RootModel[MeasurePayload]):
     @property
     def measure(self) -> MeasurePayload:
         return self.root
 
 
-@register_command(CommandType.MEASURE_REMOVE)
 class MeasureRemoveDto(BaseModel):
     id_action: int = Field(...,
                            description="ID of the measure to remove",
                            gt=0)
 
-# < Measure --------------------------------------------------------------------
+# < Measures --------------------------------------------------------------------
 
 
-# > Scheduled command ----------------------------------------------------------
-class ScheduledCommand(BaseModel):
-    """Represents a scheduled command loaded from configuration.
-
-    Attributes
-    ----------
-    command:
-        The command type corresponding to ``CommandType``. Must match one
-        of the known command identifiers such as ``incident_create`` or
-        ``measure_create``.
-    time:
-        Simulation time (seconds from midnight) at which to execute the
-        command. Events are executed when the current simulation time (from midnight) is
-        greater than or equal to this value.
-    payload:
-        Arbitrary payload dictionary.
-        The structure depends on the command type.
-    """
-    # Means execute command as soon as you encounter it
-    IMMEDIATE: ClassVar[float] = 0.0
+# > Command Wrappers ------------------------------------------------------------
+class CommandBase(BaseModel):
+    IMMEDIATE: ClassVar[float] = -1
 
     command: CommandType
     time: float = Field(default=IMMEDIATE,
-                        ge=0.0,
                         description="Sim-time in seconds from midnight,"
-                        f"omit or set to {IMMEDIATE} to run as soon as the simulation starts")
-    payload: dict | BaseModel = Field(...,
-                                      description="Payload as a DTO or a raw dict")
+                        f"omit or set to {IMMEDIATE} to run as soon as possible")
 
-    def start_time(self) -> float:
-        if hasattr(self.payload, "ini_time") and self.payload.ini_time is not None:
-            return self.payload.ini_time
 
-        return self.time
-
-    @field_validator("payload")
-    @classmethod
-    def _cast_payload(cls, v, info):
-        cmd = info.data.get("command")
-        if cmd is None or isinstance(v, BaseModel):
-            return v
-        model_cls = get_payload_cls(cmd)
-        return model_cls.model_validate(v) if model_cls else v
+class IncidentCreateCmd(CommandBase):
+    command: Literal[CommandType.INCIDENT_CREATE] = CommandType.INCIDENT_CREATE
+    payload: IncidentCreateDto
 
     @model_validator(mode="after")
-    def _ini_must_follow_schedule(self):
-        ini_time = getattr(self.payload, "ini_time", None)
-        if ini_time is not None and ini_time <= self.time:
+    def _ini_after_time(self):
+        if self.payload.ini_time <= self.time:
             raise PydanticCustomError(
                 "ini_time_before_schedule",
                 "payload.ini_time ({ini_time}) must be greater than "
                 "schedule.time ({scheduled_time})",
-                {"ini_time": ini_time, "scheduled_time": self.time})
+                {
+                    "ini_time": self.payload.ini_time,
+                    "scheduled_time": self.time,
+                },
+            )
         return self
 
 
-class ScheduleRoot(RootModel[list[ScheduledCommand]]):
+class IncidentRemoveCmd(CommandBase):
+    command: Literal[CommandType.INCIDENT_REMOVE] = CommandType.INCIDENT_REMOVE
+    payload: IncidentRemoveDto
+
+
+class IncidentsClearSectionCmd(CommandBase):
+    command: Literal[CommandType.INCIDENTS_CLEAR_SECTION] = CommandType.INCIDENTS_CLEAR_SECTION
+    payload: IncidentsClearSectionDto
+
+
+class IncidentsResetCmd(CommandBase):
+    command: Literal[CommandType.INCIDENTS_RESET] = CommandType.INCIDENTS_RESET
+    payload: None = Field(default=None)
+
+
+class MeasureCreateCmd(CommandBase):
+    command: Literal[CommandType.MEASURE_CREATE] = CommandType.MEASURE_CREATE
+    payload: MeasureCreateDto
+
+
+class MeasureRemoveCmd(CommandBase):
+    command: Literal[CommandType.MEASURE_REMOVE] = CommandType.MEASURE_REMOVE
+    payload: MeasureRemoveDto
+
+
+class MeasuresClearCmd(CommandBase):
+    command: Literal[CommandType.MEASURES_CLEAR] = CommandType.MEASURES_CLEAR
+    payload: None = Field(default=None)
+
+
+Command = Annotated[
+    Union[
+        IncidentCreateCmd,
+        IncidentRemoveCmd,
+        IncidentsClearSectionCmd,
+        IncidentsResetCmd,
+        MeasureCreateCmd,
+        MeasureRemoveCmd,
+        MeasuresClearCmd
+    ],
+    Field(discriminator="command")]
+# < Command Wrappers ------------------------------------------------------------
+
+
+class ScheduleRoot(RootModel[list[Command]]):
     pass
 # < Scheduled command ----------------------------------------------------------

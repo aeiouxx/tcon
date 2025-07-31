@@ -80,6 +80,7 @@ class AppConfig:
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
         if not data:
             return AppConfig()
+
         api_cfg = data.get("api", {})
         api_host = api_cfg.get("host") or AppConfig.DEFAULT_HOST
         api_port = api_cfg.get("port") or AppConfig.DEFAULT_PORT
@@ -100,7 +101,7 @@ class AppConfig:
         try:
             parsed = ScheduleRoot.model_validate(raw_schedule)
             schedule = Schedule(parsed.root)
-            log.info(f"Schedule parsed without errors, size: {len(schedule)}")
+            log.info("Loaded schedule, %d entries", len(schedule))
         except ValidationError as exc:
             for err in exc.errors():
                 loc = ".".join(str(p) for p in err["loc"])

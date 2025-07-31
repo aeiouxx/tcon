@@ -13,11 +13,11 @@ import importlib
 import sys
 import pathlib
 import json
+from inspect import signature
 
 from itertools import count
-from functools import singledispatch
+from functools import singledispatch, wraps
 from logging import Logger
-from pydantic import BaseModel
 
 try:
     from AAPI import *
@@ -82,20 +82,22 @@ def _import_one(name: str,
 def _imports():
     _import_one("common.logger", from_list=["get_logger"])
     _import_one("common.models",
-                from_list=["CommandType",
-                           "Command",
-                           "ScheduledCommand",
-                           "IncidentCreateDto",
-                           "IncidentRemoveDto",
-                           "IncidentsClearSectionDto",
-                           "MeasureCreateDto",
-                           "MeasureSpeedSection",
-                           "MeasureSpeedDetailed",
-                           "MeasureLaneClosure",
-                           "MeasureLaneClosureDetailed",
-                           "MeasureTurnClose",
-                           "MeasureRemoveDto",
-                           "get_payload_cls"])
+                from_list=[
+                    "Command",
+                    "CommandType",
+                    "CommandBase",
+                    "IncidentCreateDto",
+                    "IncidentRemoveDto",
+                    "IncidentsClearSectionDto",
+                    "MeasureCreateDto",
+                    "MeasureSpeedSection",
+                    "MeasureSpeedDetailed",
+                    "MeasureLaneClosure",
+                    "MeasureLaneClosureDetailed",
+                    "MeasureLaneDeactivateReserved",
+                    "MeasureTurnClose",
+                    "MeasureRemoveCmd",
+                    "MeasureRemoveDto"])
     _import_one("common.config", from_list=["AppConfig", "load_config"])
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
@@ -106,9 +108,9 @@ if TYPE_CHECKING:
     from common.config import AppConfig, load_config
     from common.logger import get_logger
     from common.models import (
-        CommandType,
         Command,
-        ScheduledCommand,
+        CommandType,
+        CommandBase,
         IncidentCreateDto,
         IncidentRemoveDto,
         IncidentsClearSectionDto,
@@ -119,8 +121,8 @@ if TYPE_CHECKING:
         MeasureLaneClosureDetailed,
         MeasureLaneDeactivateReserved,
         MeasureTurnClose,
-        MeasureRemoveDto,
-        get_payload_cls)
+        MeasureRemoveCmd,
+        MeasureRemoveDto)
     from common.schedule import Schedule
     from common.result import Result
     from server.ipc import ServerProcess
@@ -133,15 +135,32 @@ else:
 if "_HANDLERS" not in globals():
     _HANDLERS: dict[CommandType, Callable[..., Result]] = {}
 
-# FIXME: Just learned about @singledispatch from stdlib, could rewrite
-# our registration code?
-
 
 def register_handler(type: CommandType):
-    def decorator(func: callable):
-        _HANDLERS[type] = func
-        return func
-    return decorator
+    """
+    Decorate a `Plain` handler or `TimedHandler` and register it
+    """
+    def deco(fn):
+        sig_len = len(signature(fn).parameters)
+        if sig_len == 0:
+            @wraps(fn)
+            def wrapper(cmd: Command):
+                return fn()
+        elif sig_len == 1:
+            @wraps(fn)
+            def wrapper(cmd: Command):
+                return fn(cmd.payload)
+        elif sig_len == 2:
+            @wraps(fn)
+            def wrapper(cmd: Command):
+                return fn(cmd.payload, cmd.time)
+        else:
+            raise TypeError(
+                f"Handler for {type.value} must take 0, 1, or 2 positional "
+                f"parameters, not {sig_len}")
+        _HANDLERS[type] = wrapper
+        return fn
+    return deco
 
 
 @register_handler(CommandType.INCIDENT_CREATE)
@@ -194,18 +213,16 @@ def _incidents_reset() -> Result[int]:
 
 
 @register_handler(CommandType.MEASURE_CREATE)
-def _measure_create(payload: MeasureCreateDto) -> Result[int]:
+def _measure_create(payload: MeasureCreateDto, starts_at: float) -> Result[int]:
     m = payload.root
     result = _apply_measure(m)
-    log.debug("PAYLOAD: %s", payload.model_dump())
     if (result.is_ok() and m.duration and m.duration > 0 and _SCHEDULE is not None):
         action_id = result.unwrap()
-        ends_at = getattr(payload, "_starts_at_", 0.0) + m.duration
+        ends_at = starts_at + m.duration
         _SCHEDULE.push(
-            ScheduledCommand(
-                command=CommandType.MEASURE_REMOVE,
+            MeasureRemoveCmd(
                 time=ends_at,
-                payload=MeasureRemoveDto(id_action=action_id).model_dump()))
+                payload=MeasureRemoveDto(id_action=action_id)))
         log.debug("Auto‑scheduled MEASURE_REMOVE id=%s at t=%.1f s", action_id, ends_at)
 
     return result
@@ -224,7 +241,11 @@ def _measure_remove(measure: MeasureRemoveDto) -> Result[int]:
                               msg_err=f"Failed to remove measure {measure.id_action}")
 
 
-# Wish I knew about this dispatch decorator earlier instead of writing my own registration spaghetti :(
+@register_handler(CommandType.MEASURES_CLEAR)
+def _measures_clear() -> Result[int]:
+    pass
+
+
 @singledispatch
 def _apply_measure(measure) -> Result[int]:
     raise NotImplementedError(type(measure))
@@ -357,26 +378,18 @@ def _(m: MeasureTurnClose) -> Result[int]:
     return Result.ok(action_id, msg)
 
 
-def _execute(cmd_type: CommandType,
-             payload,
-             *,
-             starts_at: float | None = None) -> None:
-    handler = _HANDLERS.get(cmd_type)
+def _execute(cmd: Command) -> None:
+    """
+    Execute one validated Command
+    """
+    handler = _HANDLERS.get(cmd.command)
     if handler is None:
         log.warning(
-            "No handler registered for command type: %s", cmd_type)
+            "No handler registered for command type: %s", cmd.command)
         return
-    dto_cls = get_payload_cls(cmd_type)
-    payload_obj = (
-        dto_cls.model_validate(payload)
-        if dto_cls and not isinstance(payload, BaseModel)
-        else payload)
-    # HACK: UGLY WE SHOULD PUT EVERY COMMAND INTO THE SCHEDULER AND HANDLE ScheduledCommand always and
-    # simply set to 0 for immediate commands (this way we can handle IPC and config commands in the same handlers)
-    if starts_at is not None and isinstance(payload_obj, BaseModel):
-        object.__setattr__(payload_obj, "_starts_at_", starts_at)
+
     try:
-        res = handler(payload_obj)
+        res = handler(cmd)
         if isinstance(res, Result):
             if res.is_ok():
                 log.info("%s", res.message)
@@ -386,15 +399,15 @@ def _execute(cmd_type: CommandType,
                             res.status.name,
                             res.raw_code)
     except Exception:
-        log.exception("Unhandled error in handler for %s", cmd_type)
+        log.exception("Unhandled error in handler for %s", cmd.command)
 
 
 def _process_schedule(up_to: float) -> None:
     if not _SCHEDULE:
         return
-    for sc in _SCHEDULE.ready(up_to):
-        log.debug("Scheduled %s fired at %.2f s", sc.command, up_to)
-        _execute(sc.command, sc.payload, starts_at=sc.start_time())
+    for cmd in _SCHEDULE.ready(up_to):
+        log.debug("Scheduled %s fired at %.2f s", cmd.command, up_to)
+        _execute(cmd)
 
 
 # < Command handlers -----------------------------------------------------------
@@ -504,28 +517,3 @@ def AAPIPreRouteChoiceCalculation(time: float, timeSta: float) -> int:
 def AAPIVehicleStartParking(idveh: int, idsection: int, time: float) -> int:
     return 0
 # < AAPI CALLBACKS -------------------------------------------------------------
-
-
-if __name__ == "__main__":
-    import signal
-    _load()
-    log = get_logger("AIMSUN_ENTRY", "DEBUG", disable_ansi=False)
-    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
-    with ServerProcess() as srv:
-        while True:
-            if not srv._proc or not srv._proc.is_alive():
-                log.critical("Server is not running")
-                break
-            for raw_cmd in srv.try_recv_all():
-                try:
-                    cmd: Command = Command.model_validate(raw_cmd)
-                    log.info("Received command:\n%s", json.dumps(cmd.__dict__, indent=2))
-                    handler = _HANDLERS.get(cmd.type)
-                    if handler is None:
-                        log.warning(
-                            "No handler registered for command type: %s", cmd.type)
-                        continue
-                except Exception as e:
-                    import time
-                    time.sleep(1)
-                    log.exception("Failed when processing message: %s", e)
