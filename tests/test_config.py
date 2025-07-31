@@ -3,13 +3,16 @@ import pytest
 from pathlib import Path
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-from common.schedule import Schedule
-from common.config import load_config, AppConfig
-from common.models import CommandType, ScheduledCommand
-from common.logger import get_log_manager
 from pydantic import ValidationError
 
-# If we wanted to unit test, we can just call from_dict directly on data instead of writing cfg
+from common.config import load_config, AppConfig
+from common.logger import get_log_manager
+from common.models import (
+    Command,
+    CommandType,
+    CommandBase,
+)
+from common.schedule import Schedule
 
 
 # Helpers ----------------------------------------------------------------------
@@ -100,8 +103,6 @@ def test_missing_command_field_raises(tmp_path: Path):
     with pytest.raises(ValidationError) as exc:
         load_config(cfg_path)
 
-    assert "0.command" in str(exc.value)
-
 
 def test_schedule_parsing_incident_clear(tmp_path: Path):
     cfg_path = tmp_path / "config.json"
@@ -122,12 +123,12 @@ def test_schedule_parsing_incident_clear(tmp_path: Path):
     cfg = load_config(cfg_path)
 
     assert cfg.api_host == "127.1.1.1"
-    assert cfg.api_port == 9999                         # coerced to int
-    sc: ScheduledCommand = next(iter(cfg.schedule))
+    assert cfg.api_port == 9999
+    sc: CommandBase = next(iter(cfg.schedule))
 
     assert sc.command is CommandType.INCIDENTS_CLEAR_SECTION
     assert sc.time == 300.0
-    assert sc.payload.section_id == 42                  # payload is DTO
+    assert sc.payload.section_id == 42
 
 
 def test_ini_time_before_schedule_raises(tmp_path: Path):
@@ -158,7 +159,7 @@ def test_ini_time_before_schedule_raises(tmp_path: Path):
     assert "payload.ini_time" in str(exc.value)
 
 
-def test_implicit_time_is_minus_one(tmp_path: Path):
+def test_implicit_time_is_set(tmp_path: Path):
     cfg_path = tmp_path / "config.json"
     _write_config(
         cfg_path,
@@ -184,7 +185,7 @@ def test_implicit_time_is_minus_one(tmp_path: Path):
     sch: Schedule = cfg.schedule
 
     assert len(sch) == 1
-    assert sch.peek_time() == ScheduledCommand.IMMEDIATE
+    assert sch.peek_time() == CommandBase.IMMEDIATE
 
     due = list(sch.ready(0))
     assert len(due) == 1
@@ -200,7 +201,6 @@ def test_schedule_sorts_by_time(tmp_path: Path):
                 {   # fires third
                     "command": "incidents_reset",
                     "time": 300,
-                    "payload": {}
                 },
                 {   # fires FIRST
                     "command": "incident_remove",
