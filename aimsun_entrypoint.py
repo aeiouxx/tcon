@@ -90,6 +90,9 @@ def _imports():
                            "IncidentsClearSectionDto",
                            "MeasureCreateDto",
                            "MeasureSpeedSection",
+                           "MeasureSpeedDetailed",
+                           "MeasureLaneClosure",
+                           "MeasureLaneClosureDetailed",
                            "MeasureRemoveDto",
                            "get_payload_cls"])
     _import_one("common.config", from_list=["AppConfig", "load_config"])
@@ -110,6 +113,9 @@ if TYPE_CHECKING:
         IncidentsClearSectionDto,
         MeasureCreateDto,
         MeasureSpeedSection,
+        MeasureSpeedDetailed,
+        MeasureLaneClosure,
+        MeasureLaneClosureDetailed,
         MeasureRemoveDto,
         get_payload_cls)
     from common.schedule import Schedule
@@ -152,7 +158,7 @@ def _incident_create(payload: IncidentCreateDto) -> Result[int]:
         payload.max_speed_SR)
     return Result.from_aimsun(result,
                               msg_ok=f"Incident created successfuly, id: {result}.",
-                              msg_fail="Incident creation failed")
+                              msg_err="Incident creation failed")
 
 
 @register_handler(CommandType.INCIDENT_REMOVE)
@@ -165,7 +171,7 @@ def _incident_remove(payload: IncidentRemoveDto) -> Result[int]:
         payload.position)
     return Result.from_aimsun(result,
                               msg_ok=f"Removed incident from section: {payload.section_id}",
-                              msg_fail="Incident removal failed")
+                              msg_err="Incident removal failed")
 
 
 @register_handler(CommandType.INCIDENTS_CLEAR_SECTION)
@@ -173,7 +179,7 @@ def _incident_clear_section(payload: IncidentsClearSectionDto) -> Result[int]:
     result = AKIRemoveAllIncidentsInSection(payload.section_id)
     return Result.from_aimsun(result,
                               msg_ok=f"Cleared incidents from section: {payload.section_id}",
-                              msg_fail=f"Failed clearing incidents for section: {payload.section_id}")
+                              msg_err=f"Failed clearing incidents for section: {payload.section_id}")
 
 
 @register_handler(CommandType.INCIDENTS_RESET)
@@ -181,7 +187,7 @@ def _incidents_reset() -> Result[int]:
     result = AKIResetAllIncidents()
     return Result.from_aimsun(result,
                               msg_ok="Cleared all incidents",
-                              msg_fail="Failed clearing incidents")
+                              msg_err="Failed clearing incidents")
 
 
 @register_handler(CommandType.MEASURE_CREATE)
@@ -197,7 +203,7 @@ def _measure_create(payload: MeasureCreateDto) -> Result[int]:
                 command=CommandType.MEASURE_REMOVE,
                 time=ends_at,
                 payload=MeasureRemoveDto(id_action=action_id).model_dump()))
-        log.debug("Auto‑scheduled MEASURE_REMOVE id=%s at t=%.1f s", action_id, ends_at)
+        log.debug("Auto‑scheduled MEASURE_REMOVE id=%s at t=%.1f s", action_id, ends_at)
 
     return result
 
@@ -212,7 +218,7 @@ def _measure_remove(measure: MeasureRemoveDto) -> Result[int]:
         code = AimsunStatus.UNKNOWN_ERROR
     return Result.from_aimsun(code,
                               msg_ok=f"Removed measure {measure.id_action}",
-                              msg_fail=f"Failed to remove measure {measure.id_action}")
+                              msg_err=f"Failed to remove measure {measure.id_action}")
 
 
 # Wish I knew about this dispatch decorator earlier instead of writing my own registration spaghetti :(
@@ -222,23 +228,90 @@ def _apply_measure(measure) -> Result[int]:
 
 
 @_apply_measure.register
-def _(measure: MeasureSpeedSection) -> Result[int]:
-    section_count = len(measure.section_ids)
+def _(m: MeasureSpeedSection) -> Result[int]:
+    section_count = len(m.section_ids)
     section_id_arr: intArray = intArray(section_count)
-    for i, sid in enumerate(measure.section_ids):
+    for i, sid in enumerate(m.section_ids):
         section_id_arr[i] = sid
-    action_id = next(_ID_GEN)
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionAddSpeedActionByID(action_id,
+                                    section_count,
+                                    section_id_arr.cast(),
+                                    m.speed,
+                                    m.veh_type,
+                                    m.compliance,
+                                    m.consider_speed_acceptance)
+    except Exception as exc:
+        log.exception("Speed section API call failed: %s", exc)
+        return Result.err("Speed-section action failed")
 
-    AKIActionAddSpeedActionByID(action_id,
-                                section_count,
-                                section_id_arr.cast(),
-                                measure.speed,
-                                measure.veh_type,
-                                measure.compliance,
-                                measure.consider_speed_acceptance)
-    return Result.from_aimsun(action_id,
-                              msg_ok=f"Speed {measure.speed} km/h on {measure.section_ids} (id={action_id})",
-                              msg_fail="Speed‑section action failed")
+    return Result.ok(action_id,
+                     f"Speed {m.speed} km/h on {m.section_ids} (id={action_id})")
+
+
+@_apply_measure.register
+def _(m: MeasureSpeedDetailed) -> Result[int]:
+    section_count = len(m.section_ids)
+    section_id_arr: intArray = intArray(section_count)
+    for i, sid in enumerate(m.section_ids):
+        section_id_arr[i] = sid
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionAddDetailedSpeedActionByID(action_id,
+                                            section_count,
+                                            section_id_arr.cast(),
+                                            m.lane_id,
+                                            m.from_segment_id,
+                                            m.to_segment_id,
+                                            m.speed,
+                                            m.veh_type,
+                                            m.compliance,
+                                            m.consider_speed_acceptance)
+    except Exception as exc:
+        log.exception("Detailed-speed API call failed: %s", exc)
+        return Result.err("Detailed-speed action failed")
+
+    msg = (
+        f"Speed {m.speed} km/h on sections {m.section_ids}, "
+        f"lane {m.lane_id}, seg {m.from_segment_id}-{m.to_segment_id} "
+        f"(id={action_id})"
+    )
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureLaneClosure) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionCloseLaneActionByID(action_id,
+                                     m.section_id,
+                                     m.lane_id,
+                                     m.veh_type)
+    except Exception as exc:
+        log.exception("Lane-closure API failed: %s", exc)
+        return Result.err("Lane-closure action failed")
+
+    msg = f"Closed lane {m.lane_id} in section {m.section_id} (id={action_id})"
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureLaneClosureDetailed) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    try:
+        AKIActionCloseLaneDetailedActionByID(action_id,
+                                             m.section,
+                                             m.lane_id,
+                                             m.veh_type,
+                                             m.apply_2LCF,
+                                             m.visibility_distance)
+    except Exception as exc:
+        log.exception("Lane-closure API failed: %s", exc)
+        return Result.err("Lane-closure action failed")
+
+    msg = f"Closed lane {m.lane_id} in section {m.section} (id={action_id})"
+    return Result.ok(action_id, msg)
 
 
 def _execute(cmd_type: CommandType,
@@ -255,7 +328,7 @@ def _execute(cmd_type: CommandType,
         dto_cls.model_validate(payload)
         if dto_cls and not isinstance(payload, BaseModel)
         else payload)
-    # HACK: UGLY HACK, WE SHOULD PUT EVERY COMMAND INTO THE SCHEDULER AND HANDLE ScheduledCommand always and
+    # HACK: UGLY WE SHOULD PUT EVERY COMMAND INTO THE SCHEDULER AND HANDLE ScheduledCommand always and
     # simply set to 0 for immediate commands (this way we can handle IPC and config commands in the same handlers)
     if starts_at is not None and isinstance(payload_obj, BaseModel):
         object.__setattr__(payload_obj, "_starts_at_", starts_at)

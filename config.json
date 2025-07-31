@@ -52,6 +52,16 @@
         "speed": 5,
         "duration": 300
       }
+    },
+    {
+      "command": "measure_create",
+      "time":660,
+      "payload": {
+        "type": "lane_closure",
+        "duration": 300,
+        "section_id": 492,
+        "lane_id": 1
+      }
     }
   ]
 }

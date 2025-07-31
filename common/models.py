@@ -128,8 +128,8 @@ class MeasureType(str, Enum):
 
 
 class _MeasureBase(BaseModel):
-    id_action: int = Field(default=-1,
-                           description="Preallocate the ID only if you know what you're doing, otherwise leave empty")
+    id_action: int | None = Field(default=None,
+                                  description="Preallocate the ID only if you know what you're doing, otherwise omit this field")
     duration: float | None = Field(default=None,
                                    description="If set, automatically generate cancellation command for the action")
 
@@ -159,14 +159,50 @@ class MeasureSpeedSection(_MeasureBase):
 
 class MeasureSpeedDetailed(_MeasureBase):
     type: Literal[MeasureType.SPEED_DETAILED] = MeasureType.SPEED_DETAILED
+    section_ids: list[int] = Field(...,
+                                   min_length=1,
+                                   description="List of section IDs to apply measure to")
+    lane_id: int = Field(default=-1,
+                         description="The lane identifier (-1 for all lanes, 1 for the rightmost lane"
+                         "and N, where N is the number of lanes in the section, for the leftmost lane")
+    from_segment_id: int = Field(...,
+                                 description="Not documented in Aimsun")
+    to_segment_id: int = Field(...,
+                               description="Not documented in Aimsun")
+    speed: float = Field(...,
+                         gt=0,
+                         description="Target speed (km/h")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+    consider_speed_acceptance: bool = Field(default=True,
+                                            description="False -> override speed acceptance factor")
 
 
 class MeasureLaneClosure(_MeasureBase):
     type: Literal[MeasureType.LANE_CLOSURE] = MeasureType.LANE_CLOSURE
+    section_id: int = Field(..., description="Identifier of the section to apply action to")
+    lane_id: int = Field(..., description="Identifier of the lane to apply action to")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
 
 
 class MeasureLaneClosureDetailed(_MeasureBase):
     type: Literal[MeasureType.LANE_CLOSURE_DETAILED] = MeasureType.LANE_CLOSURE_DETAILED
+    section_id: int = Field(..., description="Identifier of the section to apply action to")
+    lane_id: int = Field(..., description="Identifier of the lane to apply action to")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    apply_2LCF: bool = Field(default=False,
+                             description="True if the 2-lanes car following model is to be considered")
+    visibility_distance: float = Field(default=200,
+                                       description="The distance at which the lane closure will start to be visible for vehicles")
 
 
 class MeasureForceTurn(_MeasureBase):
@@ -235,8 +271,8 @@ class ScheduledCommand(BaseModel):
 
         return self.time
 
-    @field_validator("payload")
-    @classmethod
+    @ field_validator("payload")
+    @ classmethod
     def _cast_payload(cls, v, info):
         cmd = info.data.get("command")
         if cmd is None or isinstance(v, BaseModel):
@@ -244,7 +280,7 @@ class ScheduledCommand(BaseModel):
         model_cls = get_payload_cls(cmd)
         return model_cls.model_validate(v) if model_cls else v
 
-    @model_validator(mode="after")
+    @ model_validator(mode="after")
     def _ini_must_follow_schedule(self):
         ini_time = getattr(self.payload, "ini_time", None)
         if ini_time is not None and ini_time <= self.time:
