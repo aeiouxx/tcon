@@ -17,7 +17,7 @@ from inspect import signature
 
 from itertools import count
 from functools import singledispatch, wraps
-from logging import Logger
+from logging import Logger, DEBUG
 
 try:
     from AAPI import *
@@ -402,6 +402,27 @@ def _execute(cmd: Command) -> None:
         log.exception("Unhandled error in handler for %s", cmd.command)
 
 
+def _process_ipc(current_time: float) -> None:
+    if not _SERVER:
+        return
+    if not _SCHEDULE:
+        return
+    for raw_cmd in _SERVER.try_recv_all():
+        try:
+            cmd: Command = Command.model_validate(raw_cmd)
+            if log.isEnabledFor(DEBUG):
+                log.debug("IPC‑recv %s, time=%s:\n%s",
+                          cmd.command,
+                          cmd.time,
+                          json.dumps(cmd.payload.model_dump(), indent=2))
+            if cmd.time <= current_time:
+                _execute(cmd)
+            else:
+                _SCHEDULE.push(cmd)
+        except Exception as e:
+            log.exception("Failed when processing message: %s", e)
+
+
 def _process_schedule(up_to: float) -> None:
     if not _SCHEDULE:
         return
@@ -451,22 +472,13 @@ def AAPIInit() -> int:
 
 
 def AAPISimulationReady() -> int:
-    start_time = 0.0
-    _process_schedule(start_time)
+    _process_schedule(up_to=0.0)
     return 0
 
 
 def AAPIManage(time: float, timeSta: float, timTrans: float, acicle: float) -> int:
-    _process_schedule(timeSta)
-    for raw_cmd in _SERVER.try_recv_all():
-        try:
-            cmd: Command = Command.parse_obj(raw_cmd)
-            log.debug("IPC‑recv %s:\n%s",
-                      cmd.type,
-                      json.dumps(cmd.payload, indent=2))
-            _execute(cmd.type, cmd.payload)
-        except Exception as e:
-            log.exception("Failed when processing message: %s", e)
+    _process_ipc(current_time=timeSta)
+    _process_schedule(up_to=timeSta)
     return 0
 
 
