@@ -129,10 +129,16 @@ class MeasureSpeedDetailed(_MeasureBase):
     lane_id: int = Field(default=-1,
                          description="The lane identifier (-1 for all lanes, 1 for the rightmost lane"
                          "and N, where N is the number of lanes in the section, for the leftmost lane")
-    from_segment_id: int = Field(...,
-                                 description="Not documented in Aimsun")
-    to_segment_id: int = Field(...,
-                               description="Not documented in Aimsun")
+    from_segment_id: int = Field(default=-1,
+                                 description="-1 for all the segments, "
+                                 "1 for the first segment the vehicles face when crossing the section, "
+                                 "and N, where N is the number of segments, "
+                                 "for the last segment the vehicles face when crossing the section")
+    to_segment_id: int = Field(default=-1,
+                               description="-1 for all the segments, "
+                               "1 for the first segment the vehicles face when crossing the section, "
+                               "and N, where N is the number of segments, "
+                               "for the last segment the vehicles face when crossing the section")
     speed: float = Field(...,
                          gt=0,
                          description="Target speed (km/h")
