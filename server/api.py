@@ -97,63 +97,63 @@ def register_incidents(app: FastAPI, queue: mp.Queue) -> None:
         return _enqueue(queue,
                         _as_command(data, IncidentRemoveCmd))
 
-    @ app.delete("/incidents/section/{section_id}")
+    @app.delete("/incidents/section/{section_id}", status_code=HTTPStatus.ACCEPTED)
     def _incidents_clear_section(section_id: int = Path(..., gt=0),
                                  time: float = Query(default=CommandBase.IMMEDIATE)):
         cmd = IncidentsClearSectionCmd(time=time,
                                        payload=IncidentsClearSectionDto(section_id=section_id))
         return _enqueue(queue, cmd)
 
-    @ app.post("/incidents/reset")
+    @app.post("/incidents/reset", status_code=HTTPStatus.ACCEPTED)
     def _incidents_clear_all(time: float = Query(default=CommandBase.IMMEDIATE)):
         cmd = IncidentsResetCmd(time=time)
         return _enqueue(queue, cmd)
 
 
 def register_measures(app: FastAPI, queue: mp.Queue) -> None:
-    @ app.post("/measure/speed", status_code=HTTPStatus.ACCEPTED)
+    @app.post("/measure/speed", status_code=HTTPStatus.ACCEPTED)
     def _measure_speed(data: MeasureSpeedSectionInput):
         if log.isEnabledFor(DEBUG):
             log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureSpeedSection))
 
-    @ app.post("/measure/speed-detailed", status_code=HTTPStatus.ACCEPTED)
+    @app.post("/measure/speed-detailed", status_code=HTTPStatus.ACCEPTED)
     def _measure_speed_detailed(data: MeasureSpeedDetailedInput):
         if log.isEnabledFor(DEBUG):
             log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureSpeedDetailed))
 
-    @ app.post("/measure/lane-closure", status_code=HTTPStatus.ACCEPTED)
+    @app.post("/measure/lane-closure", status_code=HTTPStatus.ACCEPTED)
     def _measure_lane_closure(data: MeasureLaneClosureInput):
         if log.isEnabledFor(DEBUG):
             log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureLaneClosure))
 
-    @ app.post("/measure/lane-closure-detailed", status_code=HTTPStatus.ACCEPTED)
+    @app.post("/measure/lane-closure-detailed", status_code=HTTPStatus.ACCEPTED)
     def _measure_lane_closure_detailed(data: MeasureLaneClosureDetailedInput):
         if log.isEnabledFor(DEBUG):
             log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureLaneClosureDetailed))
 
-    @ app.post("/measure/lane-unreserve", status_code=HTTPStatus.ACCEPTED)
+    @app.post("/measure/lane-unreserve", status_code=HTTPStatus.ACCEPTED)
     def _measure_lane_unreserve(data: MeasureLaneDeactivateReservedInput):
         if log.isEnabledFor(DEBUG):
             log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureLaneDeactivateReserved))
 
-    @ app.post("/measure/turn-close", status_code=HTTPStatus.ACCEPTED)
+    @app.post("/measure/turn-close", status_code=HTTPStatus.ACCEPTED)
     def _measure_turn_close(data: MeasureTurnCloseInput):
         if log.isEnabledFor(DEBUG):
             log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureTurnClose))
 
-    @ app.delete("/measure/{measure_id}", status_code=HTTPStatus.ACCEPTED)
+    @app.delete("/measure/{measure_id}", status_code=HTTPStatus.ACCEPTED)
     def _measure_remove(measure_id: int = Path(..., gt=0),
                         time: float = Query(default=CommandBase.IMMEDIATE)):
         cmd = MeasureRemoveCmd(time=time,

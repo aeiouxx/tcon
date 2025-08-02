@@ -26,7 +26,9 @@ class Result(Generic[T]):
     @classmethod
     def err(cls, message: str, code: int | None = None) -> "Result[None]":
         """Create a Result that represents failure."""
-        return cls(status=AimsunStatus.ERROR, raw_code=code, message=message)
+        return cls(status=AimsunStatus.API_FAILURE,
+                   raw_code=code,
+                   message=message)
 
     def is_ok(self) -> bool:
         return self.status == AimsunStatus.OK
@@ -43,8 +45,8 @@ class Result(Generic[T]):
     @classmethod
     def from_aimsun(cls,
                     result: int, *,
-                    msg_ok: str = None,
-                    msg_err: str = None) -> Result[int]:
+                    msg_ok: Optional[str] = None,
+                    msg_err: Optional[str] = None) -> Result[int]:
         success = result >= 0
         status = AimsunStatus.OK if success else AimsunStatus.from_code(result)
         message = (msg_ok if success else msg_err)
