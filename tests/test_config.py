@@ -127,7 +127,7 @@ class TestConfigParsing(unittest.TestCase):
 
     def test_implicit_time_is_set(self):
         """Entries without time field should have it set to `CommandBase.IMMEDIATE` implicitly"""
-        cfg_path = {
+        cfg_dict = {
             "schedule": [
                 {
                     "command": "incident_create",
@@ -144,7 +144,7 @@ class TestConfigParsing(unittest.TestCase):
             ]
         }
 
-        cfg = load_config(cfg_path)
+        cfg = AppConfig.from_dict(cfg_dict)
         sch: Schedule = cfg.schedule
 
         assert len(sch) == 1
