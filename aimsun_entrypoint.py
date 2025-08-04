@@ -97,7 +97,10 @@ def _imports():
                     "MeasureLaneDeactivateReserved",
                     "MeasureTurnClose",
                     "MeasureRemoveCmd",
-                    "MeasureRemoveDto"])
+                    "MeasureRemoveDto"
+                    "PolicyActivateCmd",
+                    "PolicyDeactivateCmd",
+                    "PolicyTargetDto"])
     _import_one("common.config", from_list=["AppConfig", "load_config"])
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
@@ -122,16 +125,21 @@ if TYPE_CHECKING:
         MeasureLaneDeactivateReserved,
         MeasureTurnClose,
         MeasureRemoveCmd,
-        MeasureRemoveDto)
+        MeasureRemoveDto,
+        PolicyActivateCmd,
+        PolicyDeactivateCmd,
+        PolicyTargetDto
+    )
     from common.schedule import Schedule
     from common.result import Result
     from server.ipc import ServerProcess
     from common.status import AimsunStatus
 else:
     _imports()
+# < Module imports -------------------------------------------------------------
 
-    # < Module imports -------------------------------------------------------------
-    # > Command handlers -----------------------------------------------------------
+
+# > Command handlers -----------------------------------------------------------
 if "_HANDLERS" not in globals():
     _HANDLERS: dict[CommandType, Callable[..., Result]] = {}
 
@@ -161,6 +169,7 @@ def register_handler(type: CommandType):
         _HANDLERS[type] = wrapper
         return fn
     return deco
+# > Incident dispatch ----------------------------------------------------------
 
 
 @register_handler(CommandType.INCIDENT_CREATE)
@@ -210,8 +219,10 @@ def _incidents_reset() -> Result[int]:
     return Result.from_aimsun(result,
                               msg_ok="Cleared all incidents",
                               msg_err="Failed clearing incidents")
+# < Incident dispatch ----------------------------------------------------------
 
 
+# > Measure dispatch -----------------------------------------------------------
 @register_handler(CommandType.MEASURE_CREATE)
 def _measure_create(payload: MeasureCreateDto, starts_at: float) -> Result[int]:
     m = payload.root
@@ -377,6 +388,32 @@ def _(m: MeasureTurnClose) -> Result[int]:
     )
     return Result.ok(action_id, msg)
 
+# < Measure dispatch -----------------------------------------------------------
+
+
+# > Policy dispatch ------------------------------------------------------------
+@register_handler(CommandType.POLICY_ACTIVATE)
+def _policy_activate(payload: PolicyTargetDto):
+    try:
+        ANGConnActivatePolicy(payload.policy_id)
+    except Exception as exc:
+        log.exception("Policy activate API failed: %s", exc)
+        return Result.err("Policy activate action failed")
+    msg = f"Activated policy '{payload.policy_id}'."
+    return Result.ok(payload.policy_id, msg)
+
+
+@register_handler(CommandType.POLICY_DEACTIVATE)
+def _policy_deactivate(payload: PolicyTargetDto):
+    try:
+        ANGConnDeactivatePolicy(payload.policy_id)
+    except Exception as exc:
+        log.exception("Policy deactivate API failed: %s", exc)
+        return Result.err("Policy deactivate action failed")
+    msg = f"Deactivated policy '{payload.policy_id}'."
+    return Result.ok(payload.policy_id, msg)
+# < Policy dispatch ------------------------------------------------------------
+
 
 def _execute(cmd: Command) -> None:
     """
@@ -429,10 +466,10 @@ def _process_schedule(up_to: float) -> None:
     for cmd in _SCHEDULE.ready(up_to):
         log.debug("Scheduled %s fired at %.2f s", cmd.command, up_to)
         _execute(cmd)
-
-
 # < Command handlers -----------------------------------------------------------
-# > AAPI CALLBACKS -------------------------------------------------------------
+
+
+# > AAPI callbacks -------------------------------------------------------------
 log: Logger | None
 _CONFIG: AppConfig
 _SCHEDULE: Schedule
@@ -445,14 +482,11 @@ def _load():
 
     This function reloads dependent modules to support hot reloading,
     loads the application configuration, initialises the logger and
-    constructs the HTTP API server. Configuration may override the
-    default host, port and log level. The global ``_CONFIG`` is set for
-    later use when scheduling events.
-    """
+    constructs the HTTP API server."""
     _imports()
     global log, _SERVER, _CONFIG, _SCHEDULE, _ID_GEN
 
-    # hash + mtime on config -> cache it?
+    # hash / mtime on config -> cache it?
     _CONFIG = load_config()
     log = get_logger("aimsun.entrypoint")
     _SERVER = ServerProcess(host=_CONFIG.api_host, port=_CONFIG.api_port)
