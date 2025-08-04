@@ -23,7 +23,10 @@ from common.models import (
     MeasureLaneDeactivateReserved,
     MeasureTurnClose,
     MeasureRemoveDto,
-    MeasureRemoveCmd
+    MeasureRemoveCmd,
+    PolicyActivateCmd,
+    PolicyDeactivateCmd,
+    PolicyTargetDto
 )
 
 from server.models import (
@@ -78,6 +81,7 @@ def build_app(queue: mp.Queue) -> FastAPI:
     app = FastAPI(title="tcon API", version="1.0.0")
     register_incidents(app, queue)
     register_measures(app, queue)
+    register_policies(app, queue)
     return app
 
 
@@ -159,6 +163,23 @@ def register_measures(app: FastAPI, queue: mp.Queue) -> None:
         cmd = MeasureRemoveCmd(time=time,
                                payload=MeasureRemoveDto(id_action=measure_id))
         return _enqueue(queue, cmd)
+
+
+def register_policies(app: FastAPI, queue: mp.Queue) -> None:
+    @app.post("/policy/{policy_id}", status_code=HTTPStatus.ACCEPTED)
+    def _policy_activate(policy_id: int = Path(..., gt=0),
+                         time: float = Query(default=CommandBase.IMMEDIATE)):
+        cmd = PolicyActivateCmd(time=time,
+                                payload=PolicyTargetDto(policy_id=policy_id))
+        return _enqueue(queue, cmd)
+
+    @app.delete("/policy/{policy_id}", status_code=HTTPStatus.ACCEPTED)
+    def _policy_deactivate(policy_id: int = Path(..., gt=0),
+                           time: float = Query(default=CommandBase.IMMEDIATE)):
+        cmd = PolicyDeactivateCmd(time=time,
+                                  payload=PolicyTargetDto(policy_id=policy_id))
+        return _enqueue(queue, cmd)
+
 # < FastAPI --------------------------------------------------------------------
 
 

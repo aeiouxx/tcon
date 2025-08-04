@@ -28,6 +28,8 @@ class CommandType(str, Enum):
     MEASURE_CREATE = "measure_create"
     MEASURE_REMOVE = "measure_remove"
     MEASURES_CLEAR = "measures_clear"
+    POLICY_ACTIVATE = "policy_activate"
+    POLICY_DEACTIVATE = "policy_deactivate"
 
 
 class MeasureType(str, Enum):
@@ -88,9 +90,8 @@ class IncidentsClearSectionDto(BaseModel):
                             description="Identifier of the section to clear of incidents")
 # < Incidents -----------------------------------------------------------------
 
+
 # > Measures --------------------------------------------------------------------
-
-
 class _MeasureBase(BaseModel):
     id_action: int | None = Field(default=None,
                                   description="Preallocate the ID only if you know what you're doing, otherwise omit this field")
@@ -238,6 +239,14 @@ class MeasureRemoveDto(BaseModel):
 # < Measures --------------------------------------------------------------------
 
 
+# > Policies --------------------------------------------------------------------
+class PolicyTargetDto(BaseModel):
+    policy_id: int = Field(...,
+                           description="ID of the policy to affect",
+                           gt=0)
+# < Policies --------------------------------------------------------------------
+
+
 # > Command Wrappers ------------------------------------------------------------
 class CommandBase(BaseModel):
     IMMEDIATE: ClassVar[float] = -1
@@ -297,6 +306,16 @@ class MeasuresClearCmd(CommandBase):
     payload: None = Field(default=None)
 
 
+class PolicyActivateCmd(CommandBase):
+    command: Literal[CommandType.POLICY_ACTIVATE] = CommandType.POLICY_ACTIVATE
+    payload: PolicyTargetDto
+
+
+class PolicyDeactivateCmd(CommandBase):
+    command: Literal[CommandType.POLICY_DEACTIVATE] = CommandType.POLICY_DEACTIVATE
+    payload: PolicyTargetDto
+
+
 Command = Annotated[
     Union[
         IncidentCreateCmd,
@@ -305,7 +324,9 @@ Command = Annotated[
         IncidentsResetCmd,
         MeasureCreateCmd,
         MeasureRemoveCmd,
-        MeasuresClearCmd
+        MeasuresClearCmd,
+        PolicyActivateCmd,
+        PolicyDeactivateCmd
     ],
     Field(discriminator="command")]
 # < Command Wrappers ------------------------------------------------------------

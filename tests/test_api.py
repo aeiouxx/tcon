@@ -155,3 +155,39 @@ class TestApi(unittest.TestCase):
         self.assertEqual(cmd.get("command"), CommandType.INCIDENTS_RESET)
         self.assertEqual(cmd.get("time"), time)
         self.assertEqual(cmd.get("payload"), None)
+
+    def test_policy_activate_endpoint(self):
+        """POST /policy/{id}?time={value} should enqueue the activate `id` policy at time of `value`"""
+        policy_id = 123456
+        time = 600
+        resp = self.client.post(f"/policy/{policy_id}?time={time}")
+        self.assertEqual(resp.status_code, HTTPStatus.ACCEPTED)
+        self.assertEqual(resp.json(), self.ACCEPTED_MSG)
+
+        msgs = self._drain_queue()
+        self.assertEqual(len(msgs), 1)
+
+        cmd = msgs[0]
+        self.assertEqual(cmd.get("command"), CommandType.POLICY_ACTIVATE)
+        self.assertEqual(cmd.get("time"), time)
+
+        payload = cmd["payload"]
+        self.assertEqual(payload["policy_id"], policy_id)
+
+    def test_policy_deactivate_endpoint(self):
+        """DELETE /policy/{id}?time={value} should enqueue the deactivate `id` policy at time of `value`"""
+        policy_id = 123456
+        time = 600
+        resp = self.client.delete(f"/policy/{policy_id}?time={time}")
+        self.assertEqual(resp.status_code, HTTPStatus.ACCEPTED)
+        self.assertEqual(resp.json(), self.ACCEPTED_MSG)
+
+        msgs = self._drain_queue()
+        self.assertEqual(len(msgs), 1)
+
+        cmd = msgs[0]
+        self.assertEqual(cmd.get("command"), CommandType.POLICY_DEACTIVATE)
+        self.assertEqual(cmd.get("time"), time)
+
+        payload = cmd["payload"]
+        self.assertEqual(payload["policy_id"], policy_id)
