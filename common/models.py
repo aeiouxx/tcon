@@ -27,7 +27,7 @@ class CommandType(str, Enum):
     INCIDENTS_RESET = "incidents_reset"
     MEASURE_CREATE = "measure_create"
     MEASURE_REMOVE = "measure_remove"
-    MEASURES_CLEAR = "measures_clear"
+    MEASURES_RESET = "measures_reset"
     POLICY_ACTIVATE = "policy_activate"
     POLICY_DEACTIVATE = "policy_deactivate"
 
@@ -302,7 +302,7 @@ class MeasureRemoveCmd(CommandBase):
 
 
 class MeasuresClearCmd(CommandBase):
-    command: Literal[CommandType.MEASURES_CLEAR] = CommandType.MEASURES_CLEAR
+    command: Literal[CommandType.MEASURES_RESET] = CommandType.MEASURES_RESET
     payload: None = Field(default=None)
 
 

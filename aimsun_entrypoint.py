@@ -241,20 +241,28 @@ def _measure_create(payload: MeasureCreateDto, starts_at: float) -> Result[int]:
 
 @register_handler(CommandType.MEASURE_REMOVE)
 def _measure_remove(measure: MeasureRemoveDto) -> Result[int]:
-    code = 0
+    code = AimsunStatus.OK
     try:
         AKIActionRemoveActionByID(measure.id_action)
     except Exception as exc:
         log.exception(exc)
-        code = AimsunStatus.UNKNOWN_ERROR
+        code = AimsunStatus.API_FAILURE
     return Result.from_aimsun(code,
                               msg_ok=f"Removed measure {measure.id_action}",
                               msg_err=f"Failed to remove measure {measure.id_action}")
 
 
-@register_handler(CommandType.MEASURES_CLEAR)
-def _measures_clear() -> Result[int]:
-    pass
+@register_handler(CommandType.MEASURES_RESET)
+def _measures_reset() -> Result[int]:
+    code = AimsunStatus.OK
+    try:
+        AKIActionReset()
+    except Exception as exc:
+        log.exception(exc)
+        code = AimsunStatus.API_FAILURE
+    return Result.from_aimsun(code,
+                              msg_ok="Removed all active actions",
+                              msg_err="Failed removing active actions")
 
 
 @singledispatch
