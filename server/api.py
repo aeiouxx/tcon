@@ -24,6 +24,7 @@ from common.models import (
     MeasureTurnClose,
     MeasureRemoveDto,
     MeasureRemoveCmd,
+    MeasuresClearCmd,
     PolicyActivateCmd,
     PolicyDeactivateCmd,
     PolicyTargetDto
@@ -162,6 +163,11 @@ def register_measures(app: FastAPI, queue: mp.Queue) -> None:
                         time: float = Query(default=CommandBase.IMMEDIATE)):
         cmd = MeasureRemoveCmd(time=time,
                                payload=MeasureRemoveDto(id_action=measure_id))
+        return _enqueue(queue, cmd)
+
+    @app.post("/measures/reset", status_code=HTTPStatus.ACCEPTED)
+    def _measures_clear(time: float = Query(default=CommandBase.IMMEDIATE)):
+        cmd = MeasuresClearCmd(time=time)
         return _enqueue(queue, cmd)
 
 

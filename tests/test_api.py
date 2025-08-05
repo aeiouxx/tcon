@@ -141,7 +141,7 @@ class TestApi(unittest.TestCase):
         payload = msgs[0]["payload"]
         self.assertEqual(payload["section_id"], section_id)
 
-    def test_reset_endpoint(self):
+    def test_incidents_reset_endpoint(self):
         """POST /incidents/reset?time=1.23 should enqueue the reset command, with the time field set to 1.23."""
         time = 1.23
         resp = self.client.post(f"/incidents/reset?time={time}")
@@ -153,6 +153,21 @@ class TestApi(unittest.TestCase):
 
         cmd = msgs[0]
         self.assertEqual(cmd.get("command"), CommandType.INCIDENTS_RESET)
+        self.assertEqual(cmd.get("time"), time)
+        self.assertEqual(cmd.get("payload"), None)
+
+    def test_measures_reset_endpoint(self):
+        """POST /measures/reset?time=1.23 should enqueue the reset command, with the time field set to 1.23."""
+        time = 1.23
+        resp = self.client.post(f"/measures/reset?time={time}")
+        self.assertEqual(resp.status_code, HTTPStatus.ACCEPTED)
+        self.assertEqual(resp.json(), self.ACCEPTED_MSG)
+
+        msgs = self._drain_queue()
+        self.assertEqual(len(msgs), 1)
+
+        cmd = msgs[0]
+        self.assertEqual(cmd.get("command"), CommandType.MEASURES_RESET)
         self.assertEqual(cmd.get("time"), time)
         self.assertEqual(cmd.get("payload"), None)
 
