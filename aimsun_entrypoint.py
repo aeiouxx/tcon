@@ -96,6 +96,8 @@ def _imports():
                     "MeasureLaneClosureDetailed",
                     "MeasureLaneDeactivateReserved",
                     "MeasureTurnClose",
+                    "MeasureTurnForceOD",
+                    "MeasureTurnForceResult",
                     "MeasureRemoveCmd",
                     "MeasureRemoveDto"
                     "PolicyActivateCmd",
@@ -124,6 +126,8 @@ if TYPE_CHECKING:
         MeasureLaneClosureDetailed,
         MeasureLaneDeactivateReserved,
         MeasureTurnClose,
+        MeasureTurnForceOD,
+        MeasureTurnForceResult,
         MeasureRemoveCmd,
         MeasureRemoveDto,
         PolicyActivateCmd,
@@ -396,11 +400,59 @@ def _(m: MeasureTurnClose) -> Result[int]:
     )
     return Result.ok(action_id, msg)
 
+
+@_apply_measure.register
+def _(m: MeasureTurnForceOD) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    next_size = len(m.next_section_ids)
+    next_arr: intArray = intArray(next_size)
+    for i, sid in enumerate(m.next_section_ids):
+        next_arr[i] = sid
+    try:
+        AKIActionAddForceTurningODActionByID(action_id,
+                                             m.from_section_id,
+                                             next_arr.cast(),
+                                             m.origin_centroid,
+                                             m.destination_centroid,
+                                             m.veh_type,
+                                             m.section_in_path,
+                                             m.compliance,
+                                             m.visibility_distance)
+
+    except Exception as exc:
+        log.exception("Force-turn (OD) API failed: %s", exc)
+        return Result.err("Force-turn (OD) action failed")
+    msg = (f"Force-turn OD {m.from_section_id} -> {m.next_section_ids} "
+           f"(veh_type={m.veh_type}, id={action_id})")
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureTurnForceResult) -> Result[int]:
+    action_id = m.id_action or next(ID_GEN)
+    next_size = len(m.next_section_ids)
+    next_arr: intArray = intArray(next_size)
+    for i, sid in enumerate(m.next_section_ids):
+        next_arr[i] = sid
+    try:
+        AKIActionAddForceTurningResultActionByID(action_id,
+                                                 m.from_section_id,
+                                                 m.old_next_section_id,
+                                                 next_arr.cast(),
+                                                 m.veh_type,
+                                                 m.compliance)
+    except Exception as exc:
+        log.exception("Force-turn (Result) API failed: %s", exc)
+        return Result.err("Force-turn (Result) action failed")
+    msg = (f"Force-turn RES {m.from_section_id}"
+           f" (old->{m.old_to_section_id}) -> {m.next_section_ids} "
+           f"(veh_type={m.veh_type}, id={action_id})")
+    return Result.ok(action_id, msg)
 # < Measure dispatch -----------------------------------------------------------
 
 
 # > Policy dispatch ------------------------------------------------------------
-@register_handler(CommandType.POLICY_ACTIVATE)
+@ register_handler(CommandType.POLICY_ACTIVATE)
 def _policy_activate(payload: PolicyTargetDto):
     try:
         ANGConnActivatePolicy(payload.policy_id)
@@ -411,7 +463,7 @@ def _policy_activate(payload: PolicyTargetDto):
     return Result.ok(payload.policy_id, msg)
 
 
-@register_handler(CommandType.POLICY_DEACTIVATE)
+@ register_handler(CommandType.POLICY_DEACTIVATE)
 def _policy_deactivate(payload: PolicyTargetDto):
     try:
         ANGConnDeactivatePolicy(payload.policy_id)

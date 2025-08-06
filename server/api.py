@@ -22,6 +22,8 @@ from common.models import (
     MeasureLaneClosureDetailed,
     MeasureLaneDeactivateReserved,
     MeasureTurnClose,
+    MeasureTurnForceOD,
+    MeasureTurnForceResult,
     MeasureRemoveDto,
     MeasureRemoveCmd,
     MeasuresClearCmd,
@@ -41,7 +43,9 @@ from server.models import (
     MeasureLaneClosureInput,
     MeasureLaneClosureDetailedInput,
     MeasureLaneDeactivateReservedInput,
-    MeasureTurnCloseInput)
+    MeasureTurnCloseInput,
+    MeasureTurnForceInputOd,
+    MeasureTurnForceInputResult)
 
 from pydantic import BaseModel, Field
 from common.logger import get_logger
@@ -158,28 +162,42 @@ def register_measures(app: FastAPI, queue: mp.Queue) -> None:
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureTurnClose))
 
-    @app.delete("/measure/{measure_id}", status_code=HTTPStatus.ACCEPTED)
+    @app.post("/measure/turn-force/od", status_code=HTTPStatus.ACCEPTED)
+    def _measure_turn_force_od(data: MeasureTurnForceInputOd):
+        if log.isEnabledFor(DEBUG):
+            log.debug(json.dumps(data.model_dump(), indent=2))
+        return _enqueue(queue,
+                        _as_measure_create_cmd(data, MeasureTurnForceOD))
+
+    @app.post("/measure/turn-force/result", status_code=HTTPStatus.ACCEPTED)
+    def _measure_turn_force_od(data: MeasureTurnForceInputResult):
+        if log.isEnabledFor(DEBUG):
+            log.debug(json.dumps(data.model_dump(), indent=2))
+        return _enqueue(queue,
+                        _as_measure_create_cmd(data, MeasureTurnForceResult))
+
+    @ app.delete("/measure/{measure_id}", status_code=HTTPStatus.ACCEPTED)
     def _measure_remove(measure_id: int = Path(..., gt=0),
                         time: float = Query(default=CommandBase.IMMEDIATE)):
         cmd = MeasureRemoveCmd(time=time,
                                payload=MeasureRemoveDto(id_action=measure_id))
         return _enqueue(queue, cmd)
 
-    @app.post("/measures/reset", status_code=HTTPStatus.ACCEPTED)
+    @ app.post("/measures/reset", status_code=HTTPStatus.ACCEPTED)
     def _measures_clear(time: float = Query(default=CommandBase.IMMEDIATE)):
         cmd = MeasuresClearCmd(time=time)
         return _enqueue(queue, cmd)
 
 
 def register_policies(app: FastAPI, queue: mp.Queue) -> None:
-    @app.post("/policy/{policy_id}", status_code=HTTPStatus.ACCEPTED)
+    @ app.post("/policy/{policy_id}", status_code=HTTPStatus.ACCEPTED)
     def _policy_activate(policy_id: int = Path(..., gt=0),
                          time: float = Query(default=CommandBase.IMMEDIATE)):
         cmd = PolicyActivateCmd(time=time,
                                 payload=PolicyTargetDto(policy_id=policy_id))
         return _enqueue(queue, cmd)
 
-    @app.delete("/policy/{policy_id}", status_code=HTTPStatus.ACCEPTED)
+    @ app.delete("/policy/{policy_id}", status_code=HTTPStatus.ACCEPTED)
     def _policy_deactivate(policy_id: int = Path(..., gt=0),
                            time: float = Query(default=CommandBase.IMMEDIATE)):
         cmd = PolicyDeactivateCmd(time=time,
