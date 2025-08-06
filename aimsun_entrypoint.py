@@ -452,7 +452,7 @@ def _(m: MeasureTurnForceResult) -> Result[int]:
 
 
 # > Policy dispatch ------------------------------------------------------------
-@ register_handler(CommandType.POLICY_ACTIVATE)
+@register_handler(CommandType.POLICY_ACTIVATE)
 def _policy_activate(payload: PolicyTargetDto):
     try:
         ANGConnActivatePolicy(payload.policy_id)
@@ -463,7 +463,7 @@ def _policy_activate(payload: PolicyTargetDto):
     return Result.ok(payload.policy_id, msg)
 
 
-@ register_handler(CommandType.POLICY_DEACTIVATE)
+@register_handler(CommandType.POLICY_DEACTIVATE)
 def _policy_deactivate(payload: PolicyTargetDto):
     try:
         ANGConnDeactivatePolicy(payload.policy_id)

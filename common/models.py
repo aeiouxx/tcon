@@ -263,7 +263,7 @@ MeasurePayload = Annotated[
 
 
 class MeasureCreateDto(RootModel[MeasurePayload]):
-    @ property
+    @property
     def measure(self) -> MeasurePayload:
         return self.root
 
@@ -298,7 +298,7 @@ class IncidentCreateCmd(CommandBase):
     command: Literal[CommandType.INCIDENT_CREATE] = CommandType.INCIDENT_CREATE
     payload: IncidentCreateDto
 
-    @ model_validator(mode="after")
+    @model_validator(mode="after")
     def _ini_after_time(self):
         if self.payload.ini_time <= self.time:
             raise PydanticCustomError(
