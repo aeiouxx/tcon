@@ -4,6 +4,7 @@ from common.models import (
     IncidentCreateDto,
     IncidentRemoveDto,
     IncidentsClearSectionDto,
+
     CommandType,
 )
 from server.api import build_app
@@ -67,6 +68,9 @@ class TestApi(unittest.TestCase):
                 break
         return msgs
 
+
+# > Incidents -----------------------------------------------------------------
+
     def test_incident_create_endpoint_valid(self):
         """POST /incident with a valid payload returns 202 and enqueues a command."""
         payload = {
@@ -87,7 +91,6 @@ class TestApi(unittest.TestCase):
         cmd = msgs[0]
         self.assertEqual(cmd["command"], CommandType.INCIDENT_CREATE)
         resp_payload = cmd["payload"]
-        # i would rather call self.assertDictContainsSubset tbh..
         self.assertEqual(payload | resp_payload, resp_payload)
 
     def test_incident_create_endpoint_invalid_payload(self):
@@ -155,6 +158,74 @@ class TestApi(unittest.TestCase):
         self.assertEqual(cmd.get("command"), CommandType.INCIDENTS_RESET)
         self.assertEqual(cmd.get("time"), time)
         self.assertEqual(cmd.get("payload"), None)
+# < Incidents -----------------------------------------------------------------
+
+
+# > Measures ------------------------------------------------------------------
+
+
+    def test_turn_force_od_valid(self):
+        """POST /measure/turn-force/od enqueues a MEASURE_CREATE command."""
+        time = 333
+        payload = {
+            "time": time,
+            "from_section_id": 1001,
+            "next_section_ids": [2001, 2002],
+            "origin_centroid": -1,
+            "destination_centroid": -1,
+            "section_in_path": -1,
+            "visibility_distance": 150.0,
+        }
+        resp = self.client.post("/measure/turn-force/od", json=payload)
+        self.assertEqual(resp.status_code, HTTPStatus.ACCEPTED)
+        self.assertEqual(resp.json(), self.ACCEPTED_MSG)
+
+        cmd, = self._drain_queue()
+        self.assertEqual(cmd["command"], CommandType.MEASURE_CREATE)
+
+        resp_payload = cmd["payload"]
+        payload.pop("time")
+        self.assertEqual(payload | resp_payload, resp_payload)
+        self.assertEqual(cmd["time"], time)
+
+    def test_turn_force_od_invalid(self):
+        resp = self.client.post("/measure/turn-force/od", json={
+            "next_section_ids": [2001]
+            # from_section_id absent
+        })
+        self.assertEqual(resp.status_code, HTTPStatus.UNPROCESSABLE_ENTITY)
+        self.assertEqual(self._drain_queue(), [])
+
+    def test_turn_force_result_valid(self):
+        """POST /measure/turn-force/result enqueues a MEASURE_CREATE command."""
+        time = 333
+        payload = {
+            "time": 333,
+            "from_section_id": 1001,
+            "next_section_ids": [4001],
+            "old_next_section_id": 3999,
+            "compliance": 0.755
+        }
+        resp = self.client.post("/measure/turn-force/result", json=payload)
+        self.assertEqual(resp.status_code, HTTPStatus.ACCEPTED)
+        self.assertEqual(resp.json(), self.ACCEPTED_MSG)
+
+        cmd, = self._drain_queue()
+        self.assertEqual(cmd["command"], CommandType.MEASURE_CREATE)
+
+        resp_payload = cmd["payload"]
+        payload.pop("time")
+        self.assertEqual(payload | resp_payload, resp_payload)
+        self.assertEqual(cmd["time"], time)
+
+    def test_turn_force_od_invalid(self):
+        resp = self.client.post("/measure/turn-force/result", json={
+            "from_section_id": 3001,
+            "next_section_ids": [4001],
+            # old_next_section_id mandatory but missing
+        })
+        self.assertEqual(resp.status_code, HTTPStatus.UNPROCESSABLE_ENTITY)
+        self.assertEqual(self._drain_queue(), [])
 
     def test_measures_reset_endpoint(self):
         """POST /measures/reset?time=1.23 should enqueue the reset command, with the time field set to 1.23."""
@@ -170,6 +241,11 @@ class TestApi(unittest.TestCase):
         self.assertEqual(cmd.get("command"), CommandType.MEASURES_RESET)
         self.assertEqual(cmd.get("time"), time)
         self.assertEqual(cmd.get("payload"), None)
+# < Measures ------------------------------------------------------------------
+
+
+# > Policies -------------------------------------------------------------------
+
 
     def test_policy_activate_endpoint(self):
         """POST /policy/{id}?time={value} should enqueue the activate `id` policy at time of `value`"""
@@ -206,3 +282,4 @@ class TestApi(unittest.TestCase):
 
         payload = cmd["payload"]
         self.assertEqual(payload["policy_id"], policy_id)
+# < Policies -------------------------------------------------------------------

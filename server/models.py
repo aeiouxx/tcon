@@ -159,3 +159,34 @@ class MeasureTurnCloseInput(_MeasureBaseInput):
                                description="If vehicles do not have apriori knowledge of closure - true, else global knowledge")
     section_affecting_path_cost_id: int = Field(default=-1,
                                                 description="Identifier to the section meant to affect the path calculation cost when the path comes from it")
+
+
+class _MeasureTurnForceBaseInput(_MeasureBaseInput):
+    """ Body shared by both /measure/turn-force/* endpoints"""
+    from_section_id: int = Field(..., description="Section where action starts.")
+    next_section_ids: list[int] = Field(...,
+                                        min_length=1,
+                                        description="Destination section(s) vehicles should take")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+
+
+class MeasureTurnForceInputOd(_MeasureTurnForceBaseInput):
+    origin_centroid:  int = Field(default=-1,
+                                  description="Centroid origin identifier, -1 means do not consider origin with set compliance")
+    destination_centroid:  int = Field(default=-1,
+                                       description="Centroid destination identifier, -1 means do not consider destination with set compliance")
+    section_in_path: int = Field(default=-1,
+                                 description="Restrict action to vehicles whose planned path already contains this section. -1 = ignore")
+    visibility_distance: float = Field(default=200,
+                                       description="Visibility distance in meters of the incident to be used in Aimsun 7.0 models.")
+
+
+class MeasureTurnForceInputResult(_MeasureTurnForceBaseInput):
+    old_next_section_id: int = Field(...,
+                                     description="Which outgoing section of the node to affect")

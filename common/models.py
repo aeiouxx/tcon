@@ -42,7 +42,8 @@ class MeasureType(str, Enum):
     LANE_CLOSURE_DETAILED = "lane_closure_detailed"
     LANE_DEACTIVATE_RESERVED = "lane_deactivate_reserved"
     TURN_CLOSE = "turn_close"
-    TURN_FORCE = "turn_force"
+    TURN_FORCE_OD = "turn_force_od"
+    TURN_FORCE_RESULT = "turn_force_result"
 
 # < Enums ----------------------------------------------------------
 
@@ -208,8 +209,43 @@ class MeasureTurnClose(_MeasureBase):
                                                 description="Identifier to the section meant to affect the path calculation cost when the path comes from it")
 
 
-class MeasureTurnForce(_MeasureBase):
-    type: Literal[MeasureType.TURN_FORCE] = MeasureType.TURN_FORCE
+class _MeasureTurnForceBase(_MeasureBase):
+    """
+        Force the next turning movement of the vehicle on a section.
+        We use the same DTO to represent both measures for OD matrices and
+        traffic state objects.
+    """
+    from_section_id: int = Field(...,
+                                 description="Section where the forced turn begins")
+    next_section_ids: list[int] = Field(...,
+                                        min_length=1,
+                                        description="One or more candidate sections vehicles should take instead.")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+
+
+class MeasureTurnForceOD(_MeasureTurnForceBase):
+    """ Force turn action evaluated against OD paths. """
+    type: Literal[MeasureType.TURN_FORCE_OD] = MeasureType.TURN_FORCE_OD
+    origin_centroid:  int = Field(default=-1,
+                                  description="Centroid origin identifier, -1 means do not consider origin with set compliance")
+    destination_centroid:  int = Field(default=-1,
+                                       description="Centroid destination identifier, -1 means do not consider destination with set compliance")
+    section_in_path: int = Field(default=-1,
+                                 description="Restrict action to vehicles whose planned path already contains this section. -1 = ignore")
+    visibility_distance: float = Field(default=200,
+                                       description="Visibility distance in meters of the incident to be used in Aimsun 7.0 models.")
+
+
+class MeasureTurnForceResult(_MeasureTurnForceBase):
+    type: Literal[MeasureType.TURN_FORCE_RESULT] = MeasureType.TURN_FORCE_RESULT
+    old_next_section_id: int = Field(...,
+                                     description="Which outgoing section of the node to affect")
 
 
 MeasurePayload = Annotated[
@@ -220,7 +256,8 @@ MeasurePayload = Annotated[
         MeasureLaneClosureDetailed,
         MeasureLaneDeactivateReserved,
         MeasureTurnClose,
-        MeasureTurnForce
+        MeasureTurnForceOD,
+        MeasureTurnForceResult
     ],
     Field(discriminator="type")]
 
