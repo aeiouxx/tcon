@@ -578,7 +578,9 @@ def _load():
     # hash / mtime on config -> cache it?
     _CONFIG = load_config()
     log = get_logger("aimsun.entrypoint")
-    _SERVER = ServerProcess(host=_CONFIG.api_host, port=_CONFIG.api_port)
+    _SERVER = ServerProcess(host=_CONFIG.api_host,
+                            port=_CONFIG.api_port,
+                            executable=_CONFIG.python_location)
     _SCHEDULE = _CONFIG.schedule
     _ID_GEN = count(1)
 
