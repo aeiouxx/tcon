@@ -6,6 +6,10 @@ from logging import DEBUG
 
 import json
 
+
+# FIXME: We could definitely solve the mapping
+# between a flattened input model for API and our
+# internal command representation more elegantly.
 from common.models import (
     Command,
     CommandBase,
@@ -24,6 +28,7 @@ from common.models import (
     MeasureTurnClose,
     MeasureTurnForceOD,
     MeasureTurnForceResult,
+    MeasureDestinationChange,
     MeasureRemoveDto,
     MeasureRemoveCmd,
     MeasuresClearCmd,
@@ -45,7 +50,8 @@ from server.models import (
     MeasureLaneDeactivateReservedInput,
     MeasureTurnCloseInput,
     MeasureTurnForceInputOd,
-    MeasureTurnForceInputResult)
+    MeasureTurnForceInputResult,
+    MeasureDestinationChangeInput)
 
 from pydantic import BaseModel, Field
 from common.logger import get_logger
@@ -67,6 +73,8 @@ def _enqueue(queue: mp.Queue,
 
 def _as_command(data: ScheduledBase, command_cls: type[CommandBase]) -> Command:
     payload = data.model_dump()
+    if log.isEnabledFor(DEBUG):
+        log.debug("Creating command from payload: %s", json.dumps(payload, indent=2))
     return command_cls(
         time=payload.pop("time", CommandBase.IMMEDIATE),
         payload=payload)
@@ -75,6 +83,8 @@ def _as_command(data: ScheduledBase, command_cls: type[CommandBase]) -> Command:
 def _as_measure_create_cmd(data: _MeasureBaseInput,
                            payload_cls: type[MeasurePayload]) -> Command:
     payload = data.model_dump()
+    if log.isEnabledFor(DEBUG):
+        log.debug("Transforming measure to command: %s", json.dumps(payload, indent=2))
     time = payload.pop("time", CommandBase.IMMEDIATE)
     return MeasureCreateCmd(time=time,
                             payload=payload_cls.model_validate(payload))
@@ -122,59 +132,48 @@ def register_incidents(app: FastAPI, queue: mp.Queue) -> None:
 def register_measures(app: FastAPI, queue: mp.Queue) -> None:
     @app.post("/measure/speed", status_code=HTTPStatus.ACCEPTED)
     def _measure_speed(data: MeasureSpeedSectionInput):
-        if log.isEnabledFor(DEBUG):
-            log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureSpeedSection))
 
     @app.post("/measure/speed-detailed", status_code=HTTPStatus.ACCEPTED)
     def _measure_speed_detailed(data: MeasureSpeedDetailedInput):
-        if log.isEnabledFor(DEBUG):
-            log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureSpeedDetailed))
 
     @app.post("/measure/lane-closure", status_code=HTTPStatus.ACCEPTED)
     def _measure_lane_closure(data: MeasureLaneClosureInput):
-        if log.isEnabledFor(DEBUG):
-            log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureLaneClosure))
 
     @app.post("/measure/lane-closure-detailed", status_code=HTTPStatus.ACCEPTED)
     def _measure_lane_closure_detailed(data: MeasureLaneClosureDetailedInput):
-        if log.isEnabledFor(DEBUG):
-            log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureLaneClosureDetailed))
 
     @app.post("/measure/lane-unreserve", status_code=HTTPStatus.ACCEPTED)
     def _measure_lane_unreserve(data: MeasureLaneDeactivateReservedInput):
-        if log.isEnabledFor(DEBUG):
-            log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureLaneDeactivateReserved))
 
     @app.post("/measure/turn-close", status_code=HTTPStatus.ACCEPTED)
     def _measure_turn_close(data: MeasureTurnCloseInput):
-        if log.isEnabledFor(DEBUG):
-            log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureTurnClose))
 
     @app.post("/measure/turn-force/od", status_code=HTTPStatus.ACCEPTED)
     def _measure_turn_force_od(data: MeasureTurnForceInputOd):
-        if log.isEnabledFor(DEBUG):
-            log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureTurnForceOD))
 
     @app.post("/measure/turn-force/result", status_code=HTTPStatus.ACCEPTED)
     def _measure_turn_force_od(data: MeasureTurnForceInputResult):
-        if log.isEnabledFor(DEBUG):
-            log.debug(json.dumps(data.model_dump(), indent=2))
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureTurnForceResult))
+
+    @app.post("/measure/destination-change", status_code=HTTPStatus.ACCEPTED)
+    def _measure_destination_change(data: MeasureDestinationChangeInput):
+        return _enqueue(queue,
+                        _as_measure_create_cmd(data, MeasureDestinationChange))
 
     @app.delete("/measure/{measure_id}", status_code=HTTPStatus.ACCEPTED)
     def _measure_remove(measure_id: int = Path(..., gt=0),
