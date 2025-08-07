@@ -2,7 +2,7 @@ import logging
 import sys
 import pathlib
 from logging.handlers import RotatingFileHandler
-from typing import Final, Optional, TextIO
+from typing import Final, TextIO
 from common.constants import get_project_root
 
 LEVEL_COLOURS: Final[dict[int, str]] = {
@@ -27,7 +27,7 @@ class LogLevelFormatter(logging.Formatter):
 class LogManager:
     def __init__(self,
                  default_level: str = "INFO",
-                 default_logfile: Optional[pathlib.Path] = None,
+                 default_logfile: pathlib.Path | None = None,
                  use_colors: bool = False):
         self.default_level = self.parse_level(default_level)
         self.default_logfile = default_logfile
@@ -37,9 +37,9 @@ class LogManager:
 
     def configure_component(self,
                             name: str,
-                            level: Optional[str] = None,
-                            logfile: Optional[str] = None,
-                            ansi: Optional[bool] = None) -> None:
+                            level: str | None = None,
+                            logfile: str | None = None,
+                            ansi: bool | None = None) -> None:
         """Override log settings for a specific component/module."""
         if logfile:
             log_path: pathlib.Path = pathlib.Path(logfile)
@@ -107,7 +107,7 @@ class LogManager:
                 print(f"        ansi   : {conf['ansi']}", file=stream)
 
     @staticmethod
-    def parse_level(level: Optional[str]) -> int:
+    def parse_level(level: str | None) -> int:
         if not level:
             return logging.INFO
         return getattr(logging, level.upper(), logging.INFO)
