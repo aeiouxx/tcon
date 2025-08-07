@@ -21,7 +21,6 @@ we flatten it into:
     "parameter_n": xxx
 }
 """
-from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
 from common.models import (
@@ -36,7 +35,7 @@ from common.models import (
 
 
 class ScheduledBase(BaseModel):
-    time: Optional[float] = Field(default=CommandBase.IMMEDIATE)
+    time: float | None = Field(default=CommandBase.IMMEDIATE)
 
 
 class IncidentCreateInput(IncidentCreateDto, ScheduledBase):

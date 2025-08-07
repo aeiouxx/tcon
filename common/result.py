@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TypeVar, Generic, Optional
+from typing import TypeVar, Generic
 from common.status import AimsunStatus
 
 T = TypeVar("T")
@@ -9,9 +9,9 @@ class Result(Generic[T]):
     def __init__(
         self,
         status: AimsunStatus,
-        value: Optional[T] = None,
-        raw_code: Optional[int] = None,
-        message: Optional[str] = None,
+        value: T | None = None,
+        raw_code: int | None = None,
+        message: str | None = None,
     ):
         self.status = status
         self.value = value
@@ -45,8 +45,8 @@ class Result(Generic[T]):
     @classmethod
     def from_aimsun(cls,
                     result: int, *,
-                    msg_ok: Optional[str] = None,
-                    msg_err: Optional[str] = None) -> Result[int]:
+                    msg_ok: str | None = None,
+                    msg_err: str | None = None) -> Result[int]:
         success = result >= 0
         status = AimsunStatus.OK if success else AimsunStatus.from_code(result)
         message = (msg_ok if success else msg_err)

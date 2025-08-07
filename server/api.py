@@ -1,7 +1,7 @@
 from __future__ import annotations
 import multiprocessing as mp
-from fastapi import FastAPI, Header, Path, Query
-from typing import Any, Generic, TypeVar, Optional
+from fastapi import FastAPI,  Path, Query
+from typing import Any
 from logging import DEBUG
 
 import json
@@ -41,7 +41,6 @@ from server.models import (
     ScheduledBase,
     IncidentCreateInput,
     IncidentRemoveInput,
-    IncidentsClearSectionInput,
     _MeasureBaseInput,
     MeasureSpeedSectionInput,
     MeasureSpeedDetailedInput,
@@ -53,7 +52,6 @@ from server.models import (
     MeasureTurnForceInputResult,
     MeasureDestinationChangeInput)
 
-from pydantic import BaseModel, Field
 from common.logger import get_logger
 from http import HTTPStatus
 
