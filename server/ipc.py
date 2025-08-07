@@ -25,7 +25,7 @@ class ServerProcess:
                  executable: str | None = None):
         self.host = host
         self.port = port
-        self.executable = executable or self._resolve_python_location(executable)
+        self.executable = self._resolve_python_location(executable)
         # IPC
         self.queue: mp.Queue = mp.Queue()
         # Handle
@@ -101,7 +101,7 @@ class ServerProcess:
         if _PYTHON_EXE is None:
             raise RuntimeError(
                 "Could not locate a Python 3.10 executable; "
-                "set 'python_location' in config.json.")
+                "set 'python_location' in config.json, or add python executable to your PATH.")
         return _PYTHON_EXE
 
     def __enter__(self) -> "ServerProcess":
