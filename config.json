@@ -29,27 +29,5 @@
       }
     }
   },
-  "schedule": [
-    {
-      "command": "measure_create",
-      "time": 60,
-      "payload": {
-        "type": "destination_change",
-        "duration": 600,
-        "section_id": 492,
-        "destination_centroid": 502,
-        "origin_centroid": 500,
-        "new_destinations": [
-          { 
-            "dest_id": 501,
-            "percentage": 80.0
-          },
-          { 
-            "dest_id": 502,
-            "percentage": 20.0
-          }
-        ]
-      }
-    }
-  ]
+  "schedule_file": "schedules/destination-change.yml",
 }

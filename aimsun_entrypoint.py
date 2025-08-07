@@ -108,6 +108,7 @@ def _imports():
     _import_one("common.result", from_list=["Result"])
     _import_one("server.ipc", from_list=["ServerProcess"])
     _import_one("common.schedule", from_list=["Schedule"])
+    _import_one("common.status", from_list=["AimsunStatus"])
 
 
 if TYPE_CHECKING:
