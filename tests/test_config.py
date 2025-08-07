@@ -114,7 +114,7 @@ class TestConfigParsing(unittest.TestCase):
 
     def test_invalid_schedule_raises(self):
         """Schedules containing invalid entries should raise a ValidationError."""
-        cfg_dict = {
+        bad_cfg = {
             "schedule": [
                 {
                     "command": "incident_create",
@@ -122,8 +122,11 @@ class TestConfigParsing(unittest.TestCase):
                 }
             ]
         }
-        with self.assertRaises(ValidationError):
-            AppConfig.from_dict(cfg_dict)
+        with self.assertLogs("common.config", level="ERROR") as cm:
+            cfg = AppConfig.from_dict(bad_cfg)
+
+        self.assertTrue(any("schedule contains errors" in msg.lower() for msg in cm.output))
+        self.assertEqual(len(cfg.schedule), 0)
 
     def test_implicit_time_is_set(self):
         """Entries without time field should have it set to `CommandBase.IMMEDIATE` implicitly"""

@@ -2,3 +2,5 @@ _archive/
 AAPI.py
 __pycache__/
 *.log
+
+schedules/*
