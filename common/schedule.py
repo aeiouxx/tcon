@@ -19,6 +19,10 @@ class Schedule:
         for sc in items:
             self.push(sc)
 
+    def extend(self, items: Iterable[CommandBase]) -> None:
+        for cb in items:
+            self.push(cb)
+
     def push(self, cb: CommandBase) -> None:
         heapq.heappush(self._heap,
                        (cb.time, next(self._order), cb))
