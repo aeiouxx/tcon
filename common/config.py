@@ -190,13 +190,32 @@ def _load_by_extension(path: pathlib.Path) -> Dict[str, Any]:
         return {}
 
 
+def _search_config_locations(root: pathlib.Path) -> pathlib.Path | None:
+    """
+    Return the first found config file in root directory by order of:
+        1. config.yaml
+        2. config.yml
+        3. config.json
+    """
+    for name in ("config.yaml", "config.yml", "config.json"):
+        candidate = root / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def load_config(path: pathlib.Path | None = None) -> AppConfig:
     """
-    Load main configuration; if *path* is None, default to
-    <PROJECT_ROOT>/config.json.
+    Load main configuration; if *path * is None, default to searching
+    <PROJECT_ROOT > /config.{yaml, yml, json}
     """
     if path is None:
-        path = get_project_root() / "config.json"
+        path = _search_config_locations(get_project_root())
+
+    if path is None:
+        log.info("No configuration file found, using defaults")
+        return AppConfig()
+
     log.info("Reading config from path: '%s'", path)
     data = _load_by_extension(path)
     return AppConfig.from_dict(data)
