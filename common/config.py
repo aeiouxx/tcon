@@ -60,6 +60,10 @@ class AppConfig:
     api_port:
         Optional override for the API port. If ``None`` the default
         ``ServerProcess`` port is used.
+    python_location:
+        If specified, use this executable to launch the server process,
+        otherwise we attempt to lookup the correct version in users PATH.
+        specified with the key python_executable.
     schedule:
         Sequence of scheduled command that should be executed when the
         simulation runs either at a particular time or immediately.
@@ -72,6 +76,7 @@ class AppConfig:
     DEFAULT_PORT: ClassVar[Final[int]] = 6969
     api_host: str = DEFAULT_HOST
     api_port: int = DEFAULT_PORT
+    python_location: str | None = None
     schedule: Schedule = field(default_factory=Schedule)
 
     @staticmethod
@@ -132,6 +137,8 @@ class AppConfig:
         api_host = api_cfg.get("host") or AppConfig.DEFAULT_HOST
         api_port = api_cfg.get("port") or AppConfig.DEFAULT_PORT
 
+        py_location = data.get("python_location")
+
         log_manager = get_log_manager()
         log_cfg = data.get("log", {})
         log_manager.default_level = log_manager.parse_level(log_cfg.get("level", "INFO"))
@@ -149,6 +156,7 @@ class AppConfig:
         log.info("Loaded schedule, %d entries", len(schedule))
         return AppConfig(api_host=api_host,
                          api_port=api_port,
+                         python_location=py_location,
                          schedule=schedule)
 
 

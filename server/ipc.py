@@ -4,6 +4,9 @@ import sys
 from types import TracebackType
 from typing import Iterator, Type
 import shutil
+import pathlib
+
+import re
 
 
 from common.logger import get_logger
@@ -11,16 +14,18 @@ from common.logger import get_logger
 log = get_logger(__name__)
 # ServerProcess > --------------------------------------------------------------
 
+if "_PYTHON_EXE" not in globals():
+    _PYTHON_EXE: str | None = None
+
 
 class ServerProcess:
-    _python_exe: str | None = None
-
     def __init__(self,
                  host: str = "127.0.0.1",
-                 port: int = 6969):
+                 port: int = 6969,
+                 executable: str | None = None):
         self.host = host
         self.port = port
-        self.executable = self._resolve_pajtn()
+        self.executable = executable or self._resolve_python_location(executable)
         # IPC
         self.queue: mp.Queue = mp.Queue()
         # Handle
@@ -60,12 +65,44 @@ class ServerProcess:
                 break
 
     @classmethod
-    def _resolve_pajtn(cls) -> str:
-        """ Lazy way to lookup the real python executable"""
-        # FIXME: This needs to be more robust!
-        if cls._python_exe is None:
-            cls._python_exe = shutil.which("python") or sys.executable
-        return cls._python_exe
+    def _resolve_python_location(cls,
+                                 configured: str | None) -> str:
+        global _PYTHON_EXE
+        if _PYTHON_EXE is not None:
+            return _PYTHON_EXE
+
+        def ok(path: str | None) -> str | None:
+            if not path:
+                return None
+            p = pathlib.Path(path)
+            log.info("Checking python location %s", path)
+            if not (p.exists() and p.is_file()):
+                log.debug("Windows....")
+                return None
+            import subprocess
+            try:
+                out = subprocess.check_output([path, "-V"], text=True)
+                major, minor = map(int, re.search(r"(\d+)\.(\d+)", out).groups())
+                if (major, minor) == (3, 10):
+                    return path
+            except Exception as exc:
+                log.debug("Skipping %s: %s", path, exc)
+            return None
+
+        # sys.executable will be the embedded interpreter inside
+        # the aimsun executable, so we would just relaunch aimsun instead
+        # of running server...
+        _PYTHON_EXE = (
+            configured  # we assume that the user supplied value is actually correct to speed up launch
+            or ok(shutil.which("python3.10"))
+            or ok(shutil.which("python3"))
+            or ok(shutil.which("python")))
+
+        if _PYTHON_EXE is None:
+            raise RuntimeError(
+                "Could not locate a Python 3.10 executable; "
+                "set 'python_location' in config.json.")
+        return _PYTHON_EXE
 
     def __enter__(self) -> "ServerProcess":
         self.start()
