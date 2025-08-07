@@ -44,6 +44,7 @@ class MeasureType(str, Enum):
     TURN_CLOSE = "turn_close"
     TURN_FORCE_OD = "turn_force_od"
     TURN_FORCE_RESULT = "turn_force_result"
+    DESTINATION_CHANGE = "destination_change"
 
 # < Enums ----------------------------------------------------------
 
@@ -248,6 +249,62 @@ class MeasureTurnForceResult(_MeasureTurnForceBase):
                                      description="Which outgoing section of the node to affect")
 
 
+class NewDestinations(BaseModel):
+    """Helper class for `MeasureType.DESTINATION_CHANGE`"""
+    dest_id: int = Field(...,
+                         description="Candidate destination centroid identifier")
+    percentage: float = Field(default=1.0,
+                              ge=0.0,
+                              le=100.0,
+                              description="Percentage of complying vehicles sent to this centroid")
+
+
+class MeasureDestinationChange(_MeasureBase):
+    """
+    Redirect vehicles on `section_id` to one or many destination centroids.
+
+    If you pass `new_destinations`, the proportions must sum to 100.0 (±1e-6).
+    If you pass the legacy `new_destination` field, it will be
+      auto-converted to `new_destinations=[{dest_id=new_destination, percentage=100.0}]`.
+    """
+    type: Literal[MeasureType.DESTINATION_CHANGE] = MeasureType.DESTINATION_CHANGE
+    section_id: int = Field(...,
+                            description="Section of action being applied")
+    new_destinations: list[NewDestinations] | None = Field(
+        default=None,
+        description="List of centroid id/proportion objects",
+        min_length=1)
+    new_destination: int | None = Field(
+        default=None,
+        description="LEGACY: Single destination centroid",
+        exclude=True)
+    origin_centroid: int = Field(default=-1,
+                                 description="Origin centroid filter (-1 ignores)")
+    destination_centroid: int = Field(default=-1,
+                                      description="Destination centroid filter (-1 ingores)")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+
+    @model_validator(mode="after")
+    def _fill_and_check(self):
+        # Legacy field handling:
+        if self.new_destinations is None:
+            if self.new_destination is None:
+                raise ValueError("Either dest_proportions or new_destination must be provided")
+            self.new_destinations = [NewDestinations(dest_id=self.new_destination, percentage=100.0)]
+
+        total = sum(p.percentage for p in self.new_destinations)
+        if not abs(total - 100.0) <= 1e-6:
+            raise ValueError(f"Destination percentages must sum to 100.0 (got {total})")
+
+        return self
+
+
 MeasurePayload = Annotated[
     Union[
         MeasureSpeedSection,
@@ -257,7 +314,8 @@ MeasurePayload = Annotated[
         MeasureLaneDeactivateReserved,
         MeasureTurnClose,
         MeasureTurnForceOD,
-        MeasureTurnForceResult
+        MeasureTurnForceResult,
+        MeasureDestinationChange
     ],
     Field(discriminator="type")]
 

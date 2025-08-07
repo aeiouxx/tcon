@@ -22,7 +22,7 @@ we flatten it into:
 }
 """
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from common.models import (
     CommandBase,
@@ -30,7 +30,8 @@ from common.models import (
     IncidentCreateDto,
     IncidentRemoveDto,
     _MeasureBase,
-    MeasureType
+    MeasureType,
+    NewDestinations
 )
 
 
@@ -190,3 +191,41 @@ class MeasureTurnForceInputOd(_MeasureTurnForceBaseInput):
 class MeasureTurnForceInputResult(_MeasureTurnForceBaseInput):
     old_next_section_id: int = Field(...,
                                      description="Which outgoing section of the node to affect")
+
+
+class MeasureDestinationChangeInput(_MeasureBaseInput):
+    section_id: int = Field(...,
+                            description="Section of action being applied")
+    new_destinations: list[NewDestinations] | None = Field(
+        default=None,
+        description="List of centroid id/proportion objects",
+        min_length=1)
+    new_destination: int | None = Field(
+        default=None,
+        description="LEGACY: Single destination centroid",
+        exclude=True)
+    origin_centroid: int = Field(default=-1,
+                                 description="Origin centroid filter (-1 ignores)")
+    destination_centroid: int = Field(default=-1,
+                                      description="Destination centroid filter (-1 ingores)")
+    veh_type: int = Field(default=0,
+                          ge=0,
+                          description="0 = all vehicles, 1..N specific vehicle types")
+    compliance: float = Field(default=1.0,
+                              ge=0.0,
+                              le=1.0,
+                              description="Share of drivers obeying the measure <0-1>")
+
+    @model_validator(mode="after")
+    def _fill_and_check(self):
+        # Legacy field handling:
+        if self.new_destinations is None:
+            if self.new_destination is None:
+                raise ValueError("Either dest_proportions or new_destination must be provided")
+            self.new_destinations = [NewDestinations(dest_id=self.new_destination, percentage=100.0)]
+
+        total = sum(p.percentage for p in self.new_destinations)
+        if not abs(total - 100.0) <= 1e-6:
+            raise ValueError(f"Destination percentages must sum to 100.0 (got {total})")
+
+        return self

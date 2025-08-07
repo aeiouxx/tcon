@@ -227,6 +227,75 @@ class TestApi(unittest.TestCase):
         self.assertEqual(resp.status_code, HTTPStatus.UNPROCESSABLE_ENTITY)
         self.assertEqual(self._drain_queue(), [])
 
+    def test_destination_change_multi_valid(self):
+        """POST /measure/destination-change enqueues a MEASURE_CREATE command."""
+        time = 333
+        payload = {
+            "time": time,
+            "duration": 600,
+            "section_id": 492,
+            "destination_centroid": 502,
+            "origin_centroid": 500,
+            "new_destinations": [
+                {
+                    "dest_id": 501,
+                    "percentage": 80.0
+                },
+                {
+                    "dest_id": 502,
+                    "percentage": 20.0
+                }
+            ]
+        }
+        res = self.client.post("/measure/destination-change", json=payload)
+        self.assertEqual(res.status_code, HTTPStatus.ACCEPTED)
+        self.assertEqual(res.json(), self.ACCEPTED_MSG)
+
+        cmd, = self._drain_queue()
+        self.assertEqual(cmd["command"], CommandType.MEASURE_CREATE)
+
+        resp_payload = cmd["payload"]
+        payload.pop("time")
+        self.assertEqual(payload | resp_payload, resp_payload)
+        self.assertEqual(cmd["time"], time)
+
+    def test_destination_change_single_valid(self):
+        """POST /measure/destination-change enqueues a MEASURE_CREATE command."""
+        time = 333
+        payload = {
+            "time": time,
+            "section_id": 502,
+            "new_destination": 222
+        }
+        res = self.client.post("/measure/destination-change", json=payload)
+        self.assertEqual(res.status_code, HTTPStatus.ACCEPTED)
+        self.assertEqual(res.json(), self.ACCEPTED_MSG)
+
+        cmd, = self._drain_queue()
+        self.assertEqual(cmd["command"], CommandType.MEASURE_CREATE)
+
+        resp_payload = cmd["payload"]
+        payload.pop("time")
+        self.assertEqual(cmd["time"], time)
+
+        # Assert that we construct the new destinations list from the single destination
+        destination, = resp_payload["new_destinations"]
+        self.assertEqual(destination["dest_id"], 222)
+        self.assertEqual(destination["percentage"], 100.0)
+
+    def test_destination_change_bad_percent_sum(self):
+        """POST /measure/destination-change with invalid percentage sums (> 100) returns an HTTPStatus.UNPROCESSABLE_ENTITY CODE."""
+        payload = {
+            "section_id": 502,
+            "new_destinations": [
+                {"dest_id": 501, "percentage": 70},
+                {"dest_id": 502, "percentage": 50}
+            ]
+        }
+        res = self.client.post("/measure/destination-change", json=payload)
+        self.assertEqual(res.status_code, HTTPStatus.UNPROCESSABLE_ENTITY)
+        self.assertEqual(self._drain_queue(), [])
+
     def test_measures_reset_endpoint(self):
         """POST /measures/reset?time=1.23 should enqueue the reset command, with the time field set to 1.23."""
         time = 1.23

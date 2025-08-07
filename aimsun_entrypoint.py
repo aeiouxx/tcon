@@ -99,7 +99,8 @@ def _imports():
                     "MeasureTurnForceOD",
                     "MeasureTurnForceResult",
                     "MeasureRemoveCmd",
-                    "MeasureRemoveDto"
+                    "MeasureRemoveDto",
+                    "MeasureDestinationChange",
                     "PolicyActivateCmd",
                     "PolicyDeactivateCmd",
                     "PolicyTargetDto"])
@@ -130,6 +131,7 @@ if TYPE_CHECKING:
         MeasureTurnForceResult,
         MeasureRemoveCmd,
         MeasureRemoveDto,
+        MeasureDestinationChange,
         PolicyActivateCmd,
         PolicyDeactivateCmd,
         PolicyTargetDto
@@ -395,7 +397,7 @@ def _(m: MeasureTurnClose) -> Result[int]:
         log.exception("Close-turn API failed: %s", exc)
         return Result.err("Close-turn action failed")
     msg = (
-        f"Closed turn {m.from_section_id}→{m.to_section_id} "
+        f"Closed turn {m.from_section_id}->{m.to_section_id} "
         f"(veh_type={m.veh_type}, id={action_id})"
     )
     return Result.ok(action_id, msg)
@@ -446,6 +448,33 @@ def _(m: MeasureTurnForceResult) -> Result[int]:
         return Result.err("Force-turn (Result) action failed")
     msg = (f"Force-turn RES {m.from_section_id}"
            f" (old->{m.old_to_section_id}) -> {m.next_section_ids} "
+           f"(veh_type={m.veh_type}, id={action_id})")
+    return Result.ok(action_id, msg)
+
+
+@_apply_measure.register
+def _(m: MeasureDestinationChange) -> Result[int]:
+    action_id = m.id_action or next(_ID_GEN)
+    vec = destVec()
+    for dp in m.new_destinations:
+        destination = A2KDestinationProportion()
+        destination.mNewDest = dp.dest_id
+        destination.mPercentage = dp.percentage
+        vec.push_back(destination)
+    try:
+        AKIActionAddChangeDestActionByID(action_id,
+                                         m.section_id,
+                                         vec,
+                                         m.origin_centroid,
+                                         m.destination_centroid,
+                                         m.veh_type,
+                                         m.compliance)
+    except Exception as exc:
+        log.exception("Change-destination API failed: %s", exc)
+        return Result.err("Change-destination action failed")
+    dests_txt = ", ".join(f"{d.dest_id}:{d.percentage:.2f}"
+                          for d in m.new_destinations)
+    msg = (f"Redirect section {m.section_id} -> [{dests_txt}] "
            f"(veh_type={m.veh_type}, id={action_id})")
     return Result.ok(action_id, msg)
 # < Measure dispatch -----------------------------------------------------------

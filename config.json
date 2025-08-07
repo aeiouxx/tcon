@@ -31,36 +31,24 @@
   },
   "schedule": [
     {
-      "command": "incident_create",
-      "payload": {
-        "section_id": 492,
-        "lane": 1,
-        "position": 10.0,
-        "length": 25.0,
-        "ini_time": 60.0,
-        "duration": 300,
-        "apply_speed_reduction": true,
-        "max_speed_SR": 20
-      }
-    },
-    {
       "command": "measure_create",
-      "time": 360,
+      "time": 60,
       "payload": {
-        "type": "speed_section",
-        "section_ids": [492],
-        "speed": 5,
-        "duration": 300
-      }
-    },
-    {
-      "command": "measure_create",
-      "time":660,
-      "payload": {
-        "type": "lane_closure",
-        "duration": 300,
+        "type": "destination_change",
+        "duration": 600,
         "section_id": 492,
-        "lane_id": 1
+        "destination_centroid": 502,
+        "origin_centroid": 500,
+        "new_destinations": [
+          { 
+            "dest_id": 501,
+            "percentage": 80.0
+          },
+          { 
+            "dest_id": 502,
+            "percentage": 20.0
+          }
+        ]
       }
     }
   ]
