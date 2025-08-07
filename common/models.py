@@ -2,6 +2,7 @@ from __future__ import annotations
 from enum import Enum
 
 from typing import (Annotated, Literal, Union,  ClassVar)
+from math import isclose
 
 from pydantic import (
     RootModel,
@@ -299,7 +300,7 @@ class MeasureDestinationChange(_MeasureBase):
             self.new_destinations = [NewDestinations(dest_id=self.new_destination, percentage=100.0)]
 
         total = sum(p.percentage for p in self.new_destinations)
-        if not abs(total - 100.0) <= 1e-6:
+        if not isclose(total, 100.0, rel_tol=1e-9, abs_tol=1e-6):
             raise ValueError(f"Destination percentages must sum to 100.0 (got {total})")
 
         return self
