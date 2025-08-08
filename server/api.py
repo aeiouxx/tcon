@@ -164,7 +164,7 @@ def register_measures(app: FastAPI, queue: mp.Queue) -> None:
                         _as_measure_create_cmd(data, MeasureTurnForceOD))
 
     @app.post("/measure/turn-force/result", status_code=HTTPStatus.ACCEPTED)
-    def _measure_turn_force_od(data: MeasureTurnForceInputResult):
+    def _measure_turn_force_result(data: MeasureTurnForceInputResult):
         return _enqueue(queue,
                         _as_measure_create_cmd(data, MeasureTurnForceResult))
 
