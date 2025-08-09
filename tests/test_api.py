@@ -93,6 +93,31 @@ class TestApi(unittest.TestCase):
         resp_payload = cmd["payload"]
         self.assertEqual(payload | resp_payload, resp_payload)
 
+    def test_incident_create_endpoint_per_veh_valid(self):
+        """POST /incident with a valid payload with distances per vehicle returns 202 and enqueues a command"""
+        payload = {
+            "section_id": 1,
+            "lane": 1,
+            "position": 0.0,
+            "length": 5.0,
+            "ini_time": 5.0,
+            "duration": 60.0,
+            "visibility_distance": 200.0,
+            "per_veh_visibility": [
+                {"veh_type": 1, "distance": 150.0},
+                {"veh_type": 2, "distance": 250.0}
+            ],
+            "apply_speed_reduction": True,
+            "max_speed_SR": 30.0
+        }
+        resp = self.client.post("/incident", json=payload)
+        self.assertEqual(resp.status_code, HTTPStatus.ACCEPTED)
+        self.assertEqual(resp.json(), self.ACCEPTED_MSG)
+        cmd, = self._drain_queue()
+        self.assertEqual(cmd["command"], CommandType.INCIDENT_CREATE)
+        resp_payload = cmd["payload"]
+        self.assertEqual(payload | resp_payload, resp_payload)
+
     def test_incident_create_endpoint_invalid_payload(self):
         """POST /incident with missing fields should return a 422 Unprocessable Entity."""
         payload = {
