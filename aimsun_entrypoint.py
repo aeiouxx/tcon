@@ -179,24 +179,69 @@ def register_handler(type: CommandType):
 # > Incident dispatch ----------------------------------------------------------
 
 
+def _incident_create_per_veh(payload: IncidentCreateDto) -> Result[int]:
+    nb = len(payload.per_veh_visibility)
+    veh_arr = intArray(nb)
+    dist_arr = doubleArray(nb)
+    for i, vv in enumerate(payload.per_veh_visibility):
+        veh_arr[i] = vv.veh_type
+        dist_arr[i] = vv.distance
+    try:
+        result = AKIGenerateIncidentDistancePerVehType(
+            payload.section_id,
+            payload.lane,
+            payload.position,
+            payload.length,
+            payload.ini_time,
+            payload.duration,
+            payload.visibility_distance,
+            nb,
+            veh_arr.cast(),
+            dist_arr.cast(),
+            payload.update_id_group,
+            payload.apply_speed_reduction,
+            payload.upstream_distance_SR,
+            payload.downstream_distance_SR,
+            payload.apply_speed_reduction)
+        return Result.from_aimsun(
+            result,
+            msg_ok=f"Incident created (per-veh-type), id: {result}.",
+            msg_err="Incident (per-veh-type) creation failed")
+    except Exception as exc:
+        log.exception("Incident-per-veh-type API failed: %s", exc)
+        return Result.err("Incident (per-veh-type) creation failed")
+
+
+def _incident_create_simple(payload: IncidentCreateDto) -> Result[int]:
+    try:
+        result = AKIGenerateIncident(
+            payload.section_id,
+            payload.lane,
+            payload.position,
+            payload.length,
+            payload.ini_time,
+            payload.duration,
+            payload.visibility_distance,
+            payload.update_id_group,
+            payload.apply_speed_reduction,
+            payload.upstream_distance_SR,
+            payload.downstream_distance_SR,
+            payload.max_speed_SR)
+        return Result.from_aimsun(
+            result,
+            msg_ok=f"Incident created successfuly, id: {result}.",
+            msg_err="Incident creation failed")
+    except Exception as exc:
+        log.exception("Incident-per-veh-type API failed: %s", exc)
+        return Result.err("Incident (per-veh-type) creation failed")
+
+
 @register_handler(CommandType.INCIDENT_CREATE)
 def _incident_create(payload: IncidentCreateDto) -> Result[int]:
-    result = AKIGenerateIncident(
-        payload.section_id,
-        payload.lane,
-        payload.position,
-        payload.length,
-        payload.ini_time,
-        payload.duration,
-        payload.visibility_distance,
-        payload.update_id_group,
-        payload.apply_speed_reduction,
-        payload.upstream_distance_SR,
-        payload.downstream_distance_SR,
-        payload.max_speed_SR)
-    return Result.from_aimsun(result,
-                              msg_ok=f"Incident created successfuly, id: {result}.",
-                              msg_err="Incident creation failed")
+    if payload.per_veh_visibility:
+        return _incident_create_per_veh(payload)
+    else:
+        return _incident_create_simple(payload)
 
 
 @register_handler(CommandType.INCIDENT_REMOVE)

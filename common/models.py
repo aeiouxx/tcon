@@ -51,6 +51,13 @@ class MeasureType(str, Enum):
 
 
 # > Incidents -----------------------------------------------------------------
+class VehicleVisibility(BaseModel):
+    veh_type: int = Field(...,
+                          description="Identifier of the vehicle type")
+    distance: int = Field(...,
+                          description="Visibility distance for given vehicle type")
+
+
 class IncidentCreateDto(BaseModel):
     """Incident to be generated"""
     section_id: int = Field(...,
@@ -66,7 +73,11 @@ class IncidentCreateDto(BaseModel):
     duration: float = Field(...,
                             description="Duration of the incident (seconds).")
     visibility_distance: float = Field(
-        default=200, description="Visibility distance in meters of the incident to be used in Aimsun 7.0 models.")
+        default=200,
+        description="Visibility distance in meters of the incident to be used in Aimsun 7.0 models."
+                    "In case visibilities are defined, vehicles not included in the list will default to the provided value")
+    per_veh_visibility: list[VehicleVisibility] | None = Field(default=None,
+                                                               description="List of per vehicle visibilities")
     update_id_group: bool = Field(
         default=False, description="True when the incident is a new group of incidents and False if the incidents is to be treated as a part of the last created incident (when creating incidents in adjacent lanes that need to be treated as a whole).")
     apply_speed_reduction: bool = Field(
@@ -77,6 +88,16 @@ class IncidentCreateDto(BaseModel):
         default=200, description="If the reduction is to be applied, the distance downstream of the incident")
     max_speed_SR: float = Field(
         default=50, description="If the reduction is to be applied, the target reduced speed")
+
+    @field_validator("per_veh_visibility")
+    @classmethod
+    def _unique_types(cls, v):
+        if not v:
+            return v
+        ids = [x.veh_type for x in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate vehicle types in per_veh_visibility.")
+        return v
 
 
 class IncidentRemoveDto(BaseModel):
