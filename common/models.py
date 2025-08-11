@@ -375,6 +375,8 @@ class CommandBase(BaseModel):
 
 
 class IncidentCreateCmd(CommandBase):
+    """Incident create command, can either use default visibility or be provided
+       visibility distances per vehicle type"""
     command: Literal[CommandType.INCIDENT_CREATE] = CommandType.INCIDENT_CREATE
     payload: IncidentCreateDto
 
@@ -394,41 +396,50 @@ class IncidentCreateCmd(CommandBase):
 
 
 class IncidentRemoveCmd(CommandBase):
+    """Remove an incident"""
     command: Literal[CommandType.INCIDENT_REMOVE] = CommandType.INCIDENT_REMOVE
     payload: IncidentRemoveDto
 
 
 class IncidentsClearSectionCmd(CommandBase):
+    """Remove all incidents active in a given section"""
     command: Literal[CommandType.INCIDENTS_CLEAR_SECTION] = CommandType.INCIDENTS_CLEAR_SECTION
     payload: IncidentsClearSectionDto
 
 
 class IncidentsResetCmd(CommandBase):
+    """Removes all incidents created using the Aimsun Next API Module, initializes incidents
+        with the initial incidents (the incidents loaded when Aimsun loads the traffic)"""
     command: Literal[CommandType.INCIDENTS_RESET] = CommandType.INCIDENTS_RESET
     payload: None = Field(default=None)
 
 
 class MeasureCreateCmd(CommandBase):
+    """Create of a specific traffic measure"""
     command: Literal[CommandType.MEASURE_CREATE] = CommandType.MEASURE_CREATE
     payload: MeasureCreateDto
 
 
 class MeasureRemoveCmd(CommandBase):
+    """Remove a specific traffic measure action"""
     command: Literal[CommandType.MEASURE_REMOVE] = CommandType.MEASURE_REMOVE
     payload: MeasureRemoveDto
 
 
 class MeasuresClearCmd(CommandBase):
+    """Clear all active traffic management actions"""
     command: Literal[CommandType.MEASURES_RESET] = CommandType.MEASURES_RESET
     payload: None = Field(default=None)
 
 
 class PolicyActivateCmd(CommandBase):
+    """Activate a specific policy"""
     command: Literal[CommandType.POLICY_ACTIVATE] = CommandType.POLICY_ACTIVATE
     payload: PolicyTargetDto
 
 
 class PolicyDeactivateCmd(CommandBase):
+    """Deactivate a specific policy"""
     command: Literal[CommandType.POLICY_DEACTIVATE] = CommandType.POLICY_DEACTIVATE
     payload: PolicyTargetDto
 
