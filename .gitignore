@@ -8,3 +8,5 @@ schedules/*
 
 config.*
 !config.example
+
+docs/*
