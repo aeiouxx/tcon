@@ -2,7 +2,7 @@ from __future__ import annotations
 import multiprocessing as mp
 from fastapi import FastAPI,  Path, Query
 from typing import Any
-from logging import DEBUG
+from logging import DEBUG, Logger
 
 import json
 
@@ -52,11 +52,11 @@ from server.models import (
     MeasureTurnForceInputResult,
     MeasureDestinationChangeInput)
 
-from common.logger import get_logger
+from common.logger import get_log_manager, get_logger
 from http import HTTPStatus
 
 
-log = get_logger(__name__)
+log: Logger = get_logger(__name__)
 
 
 # > Helpers ---------------------------------------------------------------------
@@ -201,20 +201,34 @@ def register_policies(app: FastAPI, queue: mp.Queue) -> None:
                                   payload=PolicyTargetDto(policy_id=policy_id))
         return _enqueue(queue, cmd)
 
+
 # < FastAPI --------------------------------------------------------------------
+def _configure_log(cfg: dict) -> Logger:
+    # Not shared accross process boundaries
+    mgr = get_log_manager()
+    level = cfg.get("level", mgr.default_level)
+    logfile = cfg.get("logfile", mgr.default_logfile)
+    ansi = cfg.get("ansi", mgr.default_logfile)
+    mgr.configure_component(__name__, level, logfile, ansi)
 
 
 def run_api_process(
         queue: mp.Queue,
+        log_cfg: dict,
         host: str = "127.0.0.1",
         port: int = 6969) -> None:
-    import uvicorn
+    _configure_log(log_cfg)
     log.info("API listening on http://%s:%d", host, port)
     app = build_app(queue)
+    import uvicorn
     uvicorn.run(app,
                 host=host,
                 port=port,
                 log_level="warning")
+
+
+def module_name() -> str:
+    return __name__
 
 
 if __name__ == "__main__":
