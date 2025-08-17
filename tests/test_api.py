@@ -243,7 +243,7 @@ class TestApi(unittest.TestCase):
         self.assertEqual(payload | resp_payload, resp_payload)
         self.assertEqual(cmd["time"], time)
 
-    def test_turn_force_od_invalid(self):
+    def test_turn_force_result_invalid(self):
         resp = self.client.post("/measure/turn-force/result", json={
             "from_section_id": 3001,
             "next_section_ids": [4001],
