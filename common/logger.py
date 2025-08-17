@@ -28,10 +28,10 @@ class LogManager:
     def __init__(self,
                  default_level: str = "INFO",
                  default_logfile: pathlib.Path | None = None,
-                 use_colors: bool = False):
+                 default_ansi: bool = False):
         self.default_level = self.parse_level(default_level)
         self.default_logfile = default_logfile
-        self.use_colors = use_colors
+        self.default_ansi = default_ansi
         self.component_config: dict[str, dict] = {}
         self._cache: dict[str, logging.Logger] = {}
 
@@ -47,13 +47,26 @@ class LogManager:
         cfg = {
             "level": self.parse_level(level) if level else self.default_level,
             "logfile": logfile or self.default_logfile,
-            "ansi": self.use_colors if ansi is None else ansi
+            "ansi": ansi or self.default_ansi
         }
         self.component_config[name] = cfg
         if name in self._cache:
             self._apply_config(self._cache[name], cfg)
 
-    def _apply_config(self, logger: logging.Logger, cfg: dict) -> None:
+    def export_config(self,
+                      name: str) -> dict:
+        cfg = self.component_config[name] or {
+            "level": self.default_level,
+            "logfile": self.default_logfile,
+            "ansi": self.default_ansi
+        }
+        # to keep consistent with the `configure_component` convention
+        cfg["level"] = logging.getLevelName(cfg["level"])
+        return cfg
+
+    def _apply_config(self,
+                      logger: logging.Logger,
+                      cfg: dict) -> None:
         logger.setLevel(cfg["level"])
         logger.handlers.clear()
         logger.propagate = False
@@ -83,7 +96,7 @@ class LogManager:
         config = self.component_config.get(name, {
             "level": self.default_level,
             "logfile": self.default_logfile,
-            "ansi": self.use_colors
+            "ansi": self.default_ansi
         })
         logger = logging.getLogger(name)
         self._apply_config(logger, config)
@@ -95,7 +108,7 @@ class LogManager:
         print("LogManager configuration:", file=stream)
         print(f"  Global level  : {logging.getLevelName(self.default_level)}", file=stream)
         print(f"  Global logfile: {self.default_logfile}", file=stream)
-        print(f"  ANSI colors   : {self.use_colors}", file=stream)
+        print(f"  ANSI colors   : {self.default_ansi}", file=stream)
         if not self.component_config:
             print("  No module overrides configured.", file=stream)
         else:
@@ -119,7 +132,7 @@ def get_log_manager() -> LogManager:
     if cache_key not in global_vars or not isinstance(global_vars[cache_key], LogManager):
         global_vars[cache_key] = LogManager(
             default_level="INFO",
-            use_colors=True)
+            default_ansi=False)
     return global_vars[cache_key]
 
 

@@ -142,6 +142,7 @@ class AppConfig:
         log_manager = get_log_manager()
         log_cfg = data.get("log", {})
         log_manager.default_level = log_manager.parse_level(log_cfg.get("level", "INFO"))
+        log_manager.default_ansi = log_cfg.get("ansi", False)
 
         for mod_name, settings in log_cfg.get("modules", {}).items():
             log_manager.configure_component(

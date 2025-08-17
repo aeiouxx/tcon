@@ -1,6 +1,5 @@
 from __future__ import annotations
 import multiprocessing as mp
-import sys
 from types import TracebackType
 from typing import Iterator, Type
 import shutil
@@ -9,7 +8,7 @@ import pathlib
 import re
 
 
-from common.logger import get_logger
+from common.logger import get_logger, get_log_manager
 
 log = get_logger(__name__)
 # ServerProcess > --------------------------------------------------------------
@@ -32,12 +31,19 @@ class ServerProcess:
         self._proc: mp.Process | None = None
 
     def start(self) -> None:
-        from server.api import run_api_process
+        from server.api import run_api_process, module_name
         mp.set_executable(self.executable)
+
+        # FIXME: Log manager instance is not shared across process boundaries,
+        # as it lives in the global symbol table (unique per process)
+        # we have to export the current log configuration for the server.api module to the
+        # server process (or we could reparse the config in the api process, but this is quicker)
+        # albeit less clean
+        api_log_cfg = get_log_manager().export_config(module_name())
 
         self._proc = mp.Process(
             target=run_api_process,
-            args=(self.queue, self.host, self.port),
+            args=(self.queue, api_log_cfg, self.host, self.port),
             name="tcon-api")
         self._proc.start()
         log.info("API started on http://%s:%d (pid=%d)",
@@ -75,9 +81,9 @@ class ServerProcess:
             if not path:
                 return None
             p = pathlib.Path(path)
-            log.info("Checking python location %s", path)
+            log.debug("Checking python location %s", path)
             if not (p.exists() and p.is_file()):
-                log.debug("Windows....")
+                log.debug("Microsoft store stub application???")
                 return None
             import subprocess
             try:
