@@ -129,3 +129,6 @@ The application supports configuration via config files, on init the application
     ```
 
     If the installed python interpreter isn't in your PATH, the application will not be able to launch the REST API process, therefore you either need to add the correct interpreter to your PATH, or alternatively you can provide the path via the configuration file
+
+
+#### Note: The root directory should also contain the Aimsun API file ```AAPI.py``` (which can be located in Aimsun installation folder under ```/programming/Aimsun Next API/python/base/Micro/AAPI.py```, simply copy that to the root folder for your LSP to work better)
