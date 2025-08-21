@@ -123,3 +123,9 @@ The application supports configuration via config files, on init the application
             payload:
             id_action: 10
         ```
+  - Path to the python interpreter:
+    ```yml
+    python_location: <some_path_here>
+    ```
+
+    If the installed python interpreter isn't in your PATH, the application will not be able to launch the REST API process, therefore you either need to add the correct interpreter to your PATH, or alternatively you can provide the path via the configuration file
